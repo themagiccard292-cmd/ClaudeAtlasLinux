@@ -6,6 +6,8 @@ export interface PromptEnv {
   screen: { width: number; height: number };
   hasAtspi: boolean;
   tools: string[];
+  /** Working on the private sandbox desktop (not the user's real screen). */
+  sandbox?: { apps: string[] };
 }
 
 const SCHEMA = `{
@@ -42,7 +44,8 @@ Set "done": true when the task is complete or cannot be completed, and put the f
 ${ACTIONS}
 
 Rules:
-- Screenshots are ${env.screen.width}×${env.screen.height}. A red ring marks the mouse pointer. The dark rounded bar at the bottom-centre of the screen is the app's own HUD — ignore it.
+- Screenshots are ${env.screen.width}×${env.screen.height}. A red ring marks the mouse pointer.${env.sandbox ? `
+- You are working on a PRIVATE VIRTUAL DESKTOP that the user watches live in the app — not on their real screen. It starts empty: a plain background, no taskbar, no launcher, no icons. Start applications with bash, detached, e.g. \`nohup firefox https://example.com >/dev/null 2>&1 &\`, then wait a moment and take the next screenshot. Applications installed here: ${env.sandbox.apps.length ? env.sandbox.apps.join(', ') : 'unknown — check with \`command -v\`'}. Windows opened here stay open between the user's tasks. (bash itself runs as the user on the real machine, so files you create are real.) The user can see your mouse pointer move, so act deliberately.` : ' The dark rounded bar at the bottom-centre of the screen is the app\'s own HUD — ignore it.'}
 - Work step by step: after any action that changes the screen (click, type, hotkey, launching an app) end the turn so you can see the result. Never assume a click worked.
 - Prefer the right tool: use bash for files, searching, launching apps (e.g. \`nohup firefox https://example.com >/dev/null 2>&1 &\`) and anything scriptable; use the GUI when a GUI is needed. Use atspi_* when a control is hard to hit by coordinates.
 - Never guess coordinates for something you cannot see: scroll, wait, or inspect first.
@@ -51,7 +54,7 @@ Rules:
 - Do not type passwords or secrets unless the user gave them in this chat. If you need information from the user, set done:true and ask in "message".
 - If the user interrupts with a new instruction it takes priority over your previous plan.
 
-Environment: ${env.session} session${env.desktop ? ` (${env.desktop})` : ''}; AT-SPI ${env.hasAtspi ? 'available' : 'unavailable'}; tools: ${env.tools.join(', ') || 'none detected'}.
+Environment: ${env.sandbox ? 'sandbox virtual desktop (plain X11)' : `${env.session} session${env.desktop ? ` (${env.desktop})` : ''}`}; AT-SPI ${env.hasAtspi && !env.sandbox ? 'available' : 'unavailable'}; tools: ${env.tools.join(', ') || 'none detected'}.
 
 USER'S TASK:
 ${goal}

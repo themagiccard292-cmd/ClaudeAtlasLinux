@@ -33,6 +33,8 @@ export const IconShield = (p: P) => <Svg {...p}><path d="M12 3l8 3v6c0 5-3.5 8-8
 export const IconX = (p: P) => <Svg {...p}><path d="M6 6l12 12M18 6L6 18" /></Svg>;
 export const IconBookmark = (p: P) => <Svg {...p}><path d="M6 3h12v18l-6-4-6 4z" /></Svg>;
 export const IconHand = (p: P) => <Svg {...p}><path d="M8 13V5a1.5 1.5 0 0 1 3 0v6M11 11V4a1.5 1.5 0 0 1 3 0v7M14 11V6a1.5 1.5 0 0 1 3 0v8c0 4-2 7-6 7-3 0-4.5-1.5-6-4l-2-3a1.5 1.5 0 0 1 2.5-1.5L8 15" /></Svg>;
+export const IconMonitor = (p: P) => <Svg {...p}><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></Svg>;
+export const IconRefresh = (p: P) => <Svg {...p}><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" /></Svg>;
 export const IconAlert = (p: P) => <Svg {...p}><path d="M12 3l10 18H2zM12 10v5M12 18h.01" /></Svg>;
 
 /** Original mark (a simple radial spark) — intentionally not Anthropic's logo. */

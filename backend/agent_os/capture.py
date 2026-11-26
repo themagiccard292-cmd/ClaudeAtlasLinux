@@ -159,6 +159,8 @@ class ScreenCapturer:
         self._prev_thumb: np.ndarray | None = None
         self._mon_cache: tuple[float, Monitor | None] = (0.0, None)
         self._monitors: list[Monitor] = []
+        self._stream_prev: np.ndarray | None = None
+        self._stream_sent = 0.0
 
     # -------------------------------------------------------------- geometry
     def primary_monitor(self) -> Monitor | None:
@@ -230,7 +232,7 @@ class ScreenCapturer:
             import mss
 
             mss_cls = getattr(mss, "MSS", None) or mss.mss  # mss.mss is deprecated in mss>=10
-            with mss_cls() as sct:
+            with mss_cls(display=self.env.display) as sct:
                 region = ({"left": mon.x, "top": mon.y, "width": mon.w, "height": mon.h}
                           if mon else sct.monitors[1])
                 raw = sct.grab(region)
@@ -310,7 +312,7 @@ class ScreenCapturer:
     def _cursor(self) -> tuple[int, int] | None:
         if self.env.is_wayland or not self.env.display:
             return None  # Wayland clients cannot read the global pointer position
-        return query_pointer()
+        return query_pointer(self.env.display)
 
     # ----------------------------------------------------------------- public
     def capture(
@@ -360,3 +362,50 @@ class ScreenCapturer:
                     method, real_w, real_h, changed, cursor)
         self.last = shot
         return shot
+
+
+    # ------------------------------------------------------------- live view
+    def live_frame(self, width: int = 960, quality: int = 55, mask: dict | None = None,
+                   keepalive: float = 1.5) -> dict:
+        """One frame for the in-app live view. Independent of `capture()` state (it never touches
+        `self.last` or the change detector Claude's turns rely on). The JPEG is omitted when the screen
+        did not change, so an idle desktop costs almost nothing; the pointer is always reported."""
+        img, mon, _method = self._grab()
+        real_w, real_h = img.size
+        if mon:
+            ox, oy, lw, lh = mon.x, mon.y, mon.w, mon.h
+        else:
+            ox = oy = 0
+            lw, lh = real_w, real_h
+        pointer = self._cursor()
+        norm = None
+        if pointer:
+            norm = [min(1.0, max(0.0, (pointer[0] - ox) / lw)), min(1.0, max(0.0, (pointer[1] - oy) / lh))]
+        out_w, out_h = fit_size(real_w, real_h, width, int(width * 9 / 16 * 1.25))
+        small = img.resize((out_w, out_h), Image.BILINEAR)
+        if mask:
+            ImageDraw.Draw(small).rectangle(
+                [mask["x"] * out_w, mask["y"] * out_h, (mask["x"] + mask["w"]) * out_w, (mask["y"] + mask["h"]) * out_h],
+                fill=(38, 38, 36))
+        thumb = np.asarray(small.convert("L").resize((48, 27)), dtype=np.int16)
+        now = time.monotonic()
+        changed = (self._stream_prev is None or float(np.abs(thumb - self._stream_prev).mean()) > 0.15
+                   or now - self._stream_sent > keepalive)
+        jpeg = None
+        if changed:
+            buf = io.BytesIO()
+            small.save(buf, "JPEG", quality=quality)
+            jpeg = buf.getvalue()
+            self._stream_prev = thumb
+            self._stream_sent = now
+        return {"w": out_w, "h": out_h, "pointer": norm, "jpeg": jpeg}
+
+    def normalise(self, sx: float, sy: float) -> tuple[float, float]:
+        """Screen coordinates -> 0..1 within the captured monitor (for overlay effects)."""
+        shot = self.last
+        if shot is None:
+            mon = self.primary_monitor()
+            if not mon:
+                return 0.5, 0.5
+            return (sx - mon.x) / mon.w, (sy - mon.y) / mon.h
+        return (sx - shot.origin_x) / shot.logical_w, (sy - shot.origin_y) / shot.logical_h

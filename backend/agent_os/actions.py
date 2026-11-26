@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from . import keys as K
 from .atspi import AtspiService
@@ -129,7 +129,10 @@ def normalize_action(raw: dict) -> dict:
 
 class ActionExecutor:
     def __init__(self, capturer: ScreenCapturer, driver: InputDriver | None, driver_error: str | None,
-                 atspi: AtspiService, shell: ShellTool, ks: KillSwitch) -> None:
+                 atspi: AtspiService, shell: ShellTool, ks: KillSwitch,
+                 on_fx: Callable[[dict], None] | None = None, target: str = "real") -> None:
+        self.on_fx = on_fx
+        self.target = target
         self.capturer = capturer
         self.driver = driver
         self.driver_error = driver_error
@@ -182,6 +185,21 @@ class ActionExecutor:
         result["duration_ms"] = round((time.monotonic() - started) * 1000)
         return result
 
+    def _fx(self, kind: str, sx: int | None = None, sy: int | None = None, ex: int | None = None,
+            ey: int | None = None, label: str | None = None) -> None:
+        """Visual-effect hint for the live view (ripple at the click point etc.). Never raises."""
+        if not self.on_fx:
+            return
+        try:
+            fx: dict = {"target": self.target, "kind": kind, "label": label}
+            if sx is not None and sy is not None:
+                fx["x"], fx["y"] = self.capturer.normalise(sx, sy)
+            if ex is not None and ey is not None:
+                fx["to_x"], fx["to_y"] = self.capturer.normalise(ex, ey)
+            self.on_fx(fx)
+        except Exception:
+            pass
+
     def _dispatch(self, a: dict, res: dict) -> None:
         kind = a["type"]
         if kind in {"click", "double_click", "right_click", "middle_click"}:
@@ -189,6 +207,7 @@ class ActionExecutor:
             button = {"right_click": "right", "middle_click": "middle"}.get(kind, a.get("button", "left"))
             count = 2 if kind == "double_click" else 1
             self._need_driver().click(sx, sy, button, count)
+            self._fx("right_click" if button == "right" else kind, sx, sy, label=a.get("target"))
             res.update(screen={"x": sx, "y": sy}, message=f"{kind} at ({a['x']},{a['y']}) → screen ({sx},{sy})")
         elif kind == "move":
             sx, sy = self._screen(a["x"], a["y"])
@@ -198,6 +217,7 @@ class ActionExecutor:
             sx, sy = self._screen(a["x"], a["y"])
             ex, ey = self._screen(a["to_x"], a["to_y"])
             self._need_driver().drag(sx, sy, ex, ey)
+            self._fx("drag", sx, sy, ex, ey)
             res.update(screen={"x": sx, "y": sy, "to_x": ex, "to_y": ey},
                        message=f"dragged ({a['x']},{a['y']}) → ({a['to_x']},{a['to_y']})")
         elif kind == "scroll":
@@ -208,9 +228,11 @@ class ActionExecutor:
             res["message"] = f"scrolled {a['direction']} ×{a['amount']}"
         elif kind == "type":
             self._need_driver().type_text(a["text"])
+            self._fx("type", label=a["text"][:40])
             res["message"] = f"typed {len(a['text'])} characters"
         elif kind == "hotkey":
             self._need_driver().hotkey(a["keys"])
+            self._fx("hotkey", label="+".join(a["keys"]))
             res["message"] = "pressed " + "+".join(a["keys"])
         elif kind == "bash":
             out = self.shell.run(a["command"], a["timeout"], a.get("cwd"))

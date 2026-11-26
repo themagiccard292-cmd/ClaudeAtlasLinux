@@ -14,9 +14,10 @@ import { Store } from './store';
 import { Windows } from './windows';
 
 // ------------------------------------------------------------ process-level flags
-// The Mini-HUD relies on X11 window types / always-on-top. On Wayland sessions, XWayland honours
-// them where native Wayland windows would not.
-if (process.env.DISPLAY && !process.env.ATLAS_NATIVE_WAYLAND) app.commandLine.appendSwitch('ozone-platform', 'x11');
+// v1.1: no longer forced. The default (sandbox) mode needs no always-on-top window, and forcing X11 on a Wayland
+// session produced invisible windows on some systems. Opt in with ATLAS_FORCE_X11=1 if the real-desktop HUD
+// must stay on top under XWayland.
+if (process.env.ATLAS_FORCE_X11) app.commandLine.appendSwitch('ozone-platform', 'x11');
 
 /** AppImages cannot ship a SUID chrome-sandbox, so Chromium needs unprivileged user namespaces. Only
  *  disable the sandbox when the kernel/AppArmor does not provide them (e.g. Ubuntu 24.04 default). */
@@ -106,6 +107,16 @@ function routeBackendEvent(name: string, data: Record<string, unknown>): void {
       break;
     case 'kill.reset':
       windows.broadcast({ type: 'kill', active: false });
+      break;
+    case 'screen.frame':
+      windows.sendMain({
+        type: 'live:frame', target: data.target === 'real' ? 'real' : 'sandbox', seq: Number(data.seq) || 0,
+        w: Number(data.w) || 0, h: Number(data.h) || 0, pointer: (data.pointer as [number, number] | null) ?? null,
+        jpeg: (data.jpeg as string | null) ?? null, ended: data.ended === true,
+      });
+      break;
+    case 'action.fx':
+      windows.sendMain({ type: 'live:fx', fx: data as never });
       break;
     case 'voice.level':
       windows.broadcast({ type: 'voice:level', level: Number(data.level) || 0, source: data.source === 'tts' ? 'tts' : 'mic' });

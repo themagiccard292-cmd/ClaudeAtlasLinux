@@ -27,8 +27,9 @@ def _clip(text: str, limit: int = MAX_OUTPUT) -> tuple[str, bool]:
 
 
 class ShellTool:
-    def __init__(self, ks: KillSwitch) -> None:
+    def __init__(self, ks: KillSwitch, env_extra: dict[str, str | None] | None = None) -> None:
         self.ks = ks
+        self.env_extra = env_extra or {}
 
     def run(self, command: str, timeout: float = 60.0, cwd: str | None = None) -> dict:
         if not command.strip():
@@ -44,7 +45,7 @@ class ShellTool:
             proc = subprocess.Popen(
                 ["/bin/bash", "-c", command],
                 stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                cwd=workdir, env=clean_env({"TERM": "dumb", "PAGER": "cat", "GIT_PAGER": "cat"}),
+                cwd=workdir, env=clean_env({**self.env_extra, "TERM": "dumb", "PAGER": "cat", "GIT_PAGER": "cat"}),
                 start_new_session=True,
             )
             timed_out = False

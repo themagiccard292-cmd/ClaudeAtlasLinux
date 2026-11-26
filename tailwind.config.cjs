@@ -30,6 +30,7 @@ module.exports = {
       },
       keyframes: {
         'fade-in': { from: { opacity: 0, transform: 'translateY(4px)' }, to: { opacity: 1, transform: 'none' } },
+        ripple: { '0%': { transform: 'scale(.2)', opacity: 0.95 }, '100%': { transform: 'scale(1.9)', opacity: 0 } },
         pulse2: { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.35 } },
       },
       animation: { 'fade-in': 'fade-in .18s ease-out', pulse2: 'pulse2 1.4s ease-in-out infinite' },

@@ -48,6 +48,10 @@ class FakeCtx:
         from agent_os.session import detect_session
         self.env = detect_session({"XDG_SESSION_TYPE": "x11", "DISPLAY": ":0"}, which=lambda _t: None)
 
+    def get_target(self, name):
+        from types import SimpleNamespace
+        return SimpleNamespace(capturer=self.capturer, executor=self.executor) if name == "real" else None
+
     def start(self): pass
     def stop(self): pass
 

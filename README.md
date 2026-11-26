@@ -18,6 +18,22 @@ and a hands-free voice mode. It talks to Claude through **your Claude Pro subscr
  └───────────────────────────────────────────────────────────────────────┘        └───────────────────────────────────────┘
 ```
 
+## What's new in v1.1 — live view
+
+Claude can't watch a video stream (no model reached through a chat session can; it reasons on screenshots), but **you** can.
+v1.1 adds a real live view:
+
+* **Sandbox desktop (default).** Claude works on its own private virtual screen (Xvfb). The app shows it as a **~15 fps live
+  video** next to the chat, with the agent's **mouse pointer gliding** between targets, **click ripples**, and chips for typing and
+  shortcuts. Your real desktop stays free, no HUD covers anything, and it behaves the same on X11 and Wayland.
+* **My desktop** (switch under the prompt box) still drives your real screen — now with a **smoothly gliding cursor** instead of
+  teleporting, so you can follow it.
+* Needs `xvfb` (+ `xdotool`; `openbox` is recommended for window frames). Apps run inside the sandbox via plain X11.
+
+Honest limits: the sandbox is a *separate screen*, **not a security sandbox** — `bash` still runs as you, with your files. The
+sandbox has no accessibility tree (screenshots only), starts empty (Claude launches apps with `bash`), and you watch rather than
+click in it (yet). The model still sees discrete screenshots after each step, exactly as before.
+
 ## ⚠️ Read this first
 
 * **Terms of service.** The *web* bridge automates the claude.ai chat page (types into it, reads the answer). Anthropic's
@@ -44,6 +60,7 @@ and a hands-free voice mode. It talks to Claude through **your Claude Pro subscr
 | **Wayland** | `grim` → XDG Desktop Portal (`jeepney`) → `gnome-screenshot` → `spectacle` · `ydotool` (+`wtype` for Unicode) · `evdev` global keys |
 | **Smart targeting** | AT-SPI tree / find / click through `gi.repository.Atspi` (or `pyatspi`) in a helper run by the *system* Python |
 | **UI** | `#F5F4EF` / `#262624`, serif headings, markdown, collapsible **Agent Action** accordions with the screenshot, click markers, coordinates and bash output; chat history, saved workflows, plan badge, voice/audio settings |
+| **Live view** | Sandbox desktop streamed at ~15 fps into the app with a gliding agent pointer, click ripples and typing chips (v1.1) |
 | **Mini-HUD** | Frameless transparent always-on-top pill (`type: 'dock'` / `'toolbar'`) at the bottom of the screen: live status, waveform, **STOP / TAKE OVER**, inline approve/deny. Painted out of the screenshots so Claude can't click it |
 | **Voice (keyless)** | `faster-whisper` STT · `edge-tts` → `piper` → `espeak-ng` TTS · push-to-talk **Alt+Space** · hands-free with a wake phrase · speaking while Claude works **pauses it and injects your new instruction** |
 | **Safety** | **Esc Esc** kill switch (pynput on X11, evdev anywhere) kills every automation thread and child process group; STOP button; approval gate with voice "approve / deny"; no raw shell endpoint |
@@ -76,6 +93,7 @@ ClaudeAtlasLinux/
 │   ├── requirements*.txt
 │   ├── agent_os/                 session capture input_drivers actions safety killswitch hotkeys
 │   │   │                         atspi atspi_helper shell runner keys context rpc x11util config
+│   │                         sandbox targets streamer   (v1.1: virtual desktop, live frames)
 │   │   └── voice/                audio_in vad wake stt tts manager
 │   └── tests/                    unit + real-X11 + real-AT-SPI + process tests
 ├── scripts/                      build-backend.sh make-icons.py copy-assets.mjs
@@ -105,6 +123,7 @@ backend/.venv/bin/python -m PyInstaller --noconfirm --clean \
 | Purpose | Debian / Ubuntu packages |
 |---|---|
 | Build | `python3 python3-venv python3-pip nodejs(≥20) npm fakeroot dpkg libasound2-dev portaudio19-dev` |
+| Sandbox desktop (v1.1) | `xvfb xdotool` (+ `openbox` for window frames) |
 | X11 input/capture | `xdotool x11-xserver-utils` (xrandr) |
 | Wayland input/capture | `ydotool` (≥1.0) `wtype` `grim` (+ `wl-clipboard`); GNOME/KDE use the screenshot portal instead of grim |
 | Accessibility | `python3-gi gir1.2-atspi-2.0 python3-pyatspi at-spi2-core` |
@@ -137,15 +156,15 @@ sudo udevadm control --reload && sudo udevadm trigger   # then log out / in; ydo
 
 Notes: `wtype` does not work on GNOME (the app falls back to `ydotool type`, ASCII only); GNOME shows a one-time
 screenshot-portal prompt; AT-SPI window geometry is only reliable for XWayland/X11 apps; the HUD is forced onto XWayland
-(`--ozone-platform=x11`) because native Wayland windows cannot position themselves or stay on top.
+only if you set `ATLAS_FORCE_X11=1` (v1.1 no longer forces it, which fixed invisible windows on some Wayland setups); native Wayland windows cannot position themselves or stay on top, so use the sandbox desktop there.
 Environment overrides: `ATLAS_SESSION_TYPE`, `ATLAS_INPUT_BACKEND`, `ATLAS_CAPTURE_BACKEND`, `ATLAS_HOTKEY_BACKEND`,
-`ATLAS_PTT_KEYS` (default `alt+space`), `ATLAS_SYSTEM_PYTHON`.
+`ATLAS_PTT_KEYS` (default `alt+space`), `ATLAS_SYSTEM_PYTHON`, `ATLAS_GLIDE=0` (disable smooth cursor), `ATLAS_ENABLE_GPU=1` (GPU acceleration is off by default).
 
 ## Using it
 
 1. Launch → **Sign in with Claude Pro** (or "Use the local Claude CLI instead").
 2. Type a task, or hold **Alt+Space** and say it. Mode **Agent** controls the desktop; **Chat** is plain Claude.
-3. The window hides and the HUD appears. **STOP / TAKE OVER** or **Esc Esc** hands control back instantly.
+3. In **Sandbox** mode the live view opens beside the chat; in **My desktop** mode the window hides and the HUD appears. **STOP / TAKE OVER** or **Esc Esc** hands control back instantly.
 4. Speak while it works to interrupt: it pauses, listens, and folds your instruction into the next step.
 5. Anything destructive asks first — click Approve/Deny, or say "approve" / "deny".
 
@@ -166,7 +185,7 @@ format reminders before the task fails.
 
 | Suite | What it proves |
 |---|---|
-| `backend/tests` (166) | safety rules, key tables, kill switch, coordinate mapping, VAD, wake word, AT-SPI tree logic, WebSocket protocol |
+| `backend/tests` (175, incl. real sandbox + live stream) | safety rules, key tables, kill switch, coordinate mapping, VAD, wake word, AT-SPI tree logic, WebSocket protocol |
 | `…/test_e2e_x11.py` | **real** Xvfb: capture, xdotool clicks/typing into a real xterm, Esc-Esc kill via real key events, Alt+Space |
 | `…/test_e2e_atspi.py` | **real** GTK3 app on a private AT-SPI bus: read tree, read entry text, click a button via AT-SPI |
 | `…/test_e2e_process.py` | sidecar as a process: READY handshake, auth, loopback-only, exits when the parent dies |

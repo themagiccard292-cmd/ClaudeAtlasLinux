@@ -1,7 +1,7 @@
 import { app, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import type { InvokeChannel, InvokeMap, SendMap } from '../shared/ipc';
 import type {
-  AgentState, AudioDevices, AuthState, BackendState, BridgeDiagnosis, Settings,
+  AgentState, AudioDevices, AuthState, BackendState, BridgeDiagnosis, SandboxState, Settings,
 } from '../shared/types';
 import type { AgentRunner } from './agent/runner';
 import type { AuthManager } from './auth';
@@ -97,6 +97,27 @@ export function registerIpc(c: IpcContext): void {
   handle('agent:pause', () => c.runner.pause('manual'));
   handle('agent:resume', () => c.runner.resume());
   handle('agent:confirm', (r) => c.runner.confirm(str(r.id, 64), r.approved === true));
+
+  const sandboxCall = async (method: string): Promise<SandboxState> => {
+    const st = await backendCall<SandboxState>(method, {
+      width: c.store.settings.sandboxWidth, height: c.store.settings.sandboxHeight,
+    });
+    c.windows.broadcast({ type: 'sandbox', state: st });
+    return st;
+  };
+  handle('sandbox:state', async () => (c.backend() ? backendCall<SandboxState>('sandbox.status') : null));
+  handle('sandbox:start', async () => {
+    const st = await sandboxCall('sandbox.start');
+    await backendCall('stream.start', { target: 'sandbox', fps: 15, width: 960, quality: 55 });
+    return st;
+  });
+  handle('sandbox:reset', async () => {
+    if (c.runner.isRunning()) throw new Error('Stop the current task first.');
+    await sandboxCall('sandbox.stop');
+    const st = await sandboxCall('sandbox.start');
+    await backendCall('stream.start', { target: 'sandbox', fps: 15, width: 960, quality: 55 });
+    return st;
+  });
 
   handle('kill:trigger', async () => {
     await backendCall('kill.trigger', { source: 'ui' });

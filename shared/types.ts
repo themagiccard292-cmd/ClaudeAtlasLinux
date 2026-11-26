@@ -19,6 +19,7 @@ export interface BackendInfo {
   voice: Record<string, unknown>;
   kill: { active: boolean; source: string | null };
   primary_monitor: { name: string; x: number; y: number; width: number; height: number } | null;
+  sandbox?: SandboxState;
 }
 
 export type BackendStatus = 'starting' | 'ready' | 'error' | 'stopped';
@@ -44,6 +45,29 @@ export interface AuthState {
 
 // ----------------------------------------------------------------- settings
 export type BridgeMode = 'web' | 'cli';
+/** `sandbox`: Claude works on a private virtual desktop you watch live. `real`: it drives your own screen. */
+export type DesktopMode = 'sandbox' | 'real';
+
+export interface SandboxState {
+  running: boolean;
+  display: string | null;
+  width: number;
+  height: number;
+  available: boolean;
+  reason: string | null;
+  window_manager?: string | null;
+}
+
+/** Visual effect hint for the live view; x/y are 0..1 within the screen. */
+export interface LiveFx {
+  target: 'real' | 'sandbox';
+  kind: 'click' | 'double_click' | 'right_click' | 'drag' | 'type' | 'hotkey';
+  x?: number;
+  y?: number;
+  to_x?: number;
+  to_y?: number;
+  label?: string | null;
+}
 
 export interface VoiceSettings {
   inputDevice: number | string | null;
@@ -60,6 +84,9 @@ export interface VoiceSettings {
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
   bridgeMode: BridgeMode;
+  desktopMode: DesktopMode;
+  sandboxWidth: number;
+  sandboxHeight: number;
   cliPath: string;
   maxSteps: number;
   stepDelayMs: number;
@@ -70,6 +97,9 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   bridgeMode: 'web',
+  desktopMode: 'sandbox',
+  sandboxWidth: 1280,
+  sandboxHeight: 720,
   cliPath: 'claude',
   maxSteps: 40,
   stepDelayMs: 500,

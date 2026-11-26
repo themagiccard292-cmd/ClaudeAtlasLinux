@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import type { AtlasEvent } from '../shared/ipc';
 import {
-  type AgentState, type AppInfo, type AuthState, type BackendState, type Chat, type ChatSummary, type ConfirmRequest,
+  type AgentState, type AppInfo, type SandboxState, type AuthState, type BackendState, type Chat, type ChatSummary, type ConfirmRequest,
   DEFAULT_SETTINGS, type Settings, type VoiceUiState, type Workflow,
 } from '../shared/types';
 import { atlas, isHudRoute } from './lib/atlas';
+import { liveBus } from './lib/liveBus';
 
 export interface Toast {
   id: number;
@@ -32,6 +33,8 @@ interface UiState {
   mode: 'agent' | 'chat';
   toasts: Toast[];
   loginRequested: boolean;
+  liveOpen: boolean;
+  sandbox: SandboxState | null;
 
   init(): Promise<void>;
   handleEvent(e: AtlasEvent): void;
@@ -64,6 +67,8 @@ export const useUi = create<UiState>((set, get) => ({
   mode: 'agent',
   toasts: [],
   loginRequested: false,
+  liveOpen: false,
+  sandbox: null,
 
   set: (p) => set(p),
 
@@ -73,10 +78,11 @@ export const useUi = create<UiState>((set, get) => ({
     const [appInfo, auth, backend, settings, agent] = await Promise.all([
       a.invoke('app:info'), a.invoke('auth:state'), a.invoke('backend:state'), a.invoke('settings:get'), a.invoke('agent:state'),
     ]);
-    set({ appInfo, auth, backend, settings, agent, loaded: true });
+    set({ appInfo, auth, backend, settings, agent, loaded: true, liveOpen: agent.status !== 'idle' && settings.desktopMode === 'sandbox' });
     if (isHudRoute()) return; // the HUD only needs live state
     const [chats, workflows] = await Promise.all([a.invoke('chat:list'), a.invoke('workflow:list')]);
-    set({ chats, workflows });
+    const sandbox = await a.invoke('sandbox:state').catch(() => null);
+    set({ chats, workflows, sandbox });
     if (chats.length) await get().selectChat(chats[0].id);
   },
 
@@ -84,7 +90,15 @@ export const useUi = create<UiState>((set, get) => ({
     switch (e.type) {
       case 'backend': set({ backend: e.state }); break;
       case 'auth': set({ auth: e.state, loginRequested: e.state.status === 'signed_in' ? false : get().loginRequested }); break;
-      case 'agent': set({ agent: e.state }); break;
+      case 'agent': {
+        const wasIdle = get().agent.status === 'idle';
+        // opening the live view automatically when a sandbox task starts is the whole point
+        set({ agent: e.state, liveOpen: wasIdle && e.state.status !== 'idle' && get().settings.desktopMode === 'sandbox' ? true : get().liveOpen });
+        break;
+      }
+      case 'live:frame': liveBus.emitFrame(e); break;
+      case 'live:fx': liveBus.emitFx(e); break;
+      case 'sandbox': set({ sandbox: e.state }); break;
       case 'chat:list': set({ chats: e.chats }); break;
       case 'chat:title': set({ chats: get().chats.map((c) => (c.id === e.chatId ? { ...c, title: e.title } : c)) }); break;
       case 'chat:message': {

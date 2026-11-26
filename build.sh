@@ -39,10 +39,10 @@ die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ── system packages ───────────────────────────────────────────────────────────────────────────
 # build:   python3-venv python3-pip nodejs npm fakeroot dpkg (+ libportaudio2 so sounddevice imports)
-# runtime: xdotool x11-xserver-utils (X11) · ydotool wtype grim (Wayland) · python3-gi gir1.2-atspi-2.0
+# runtime: xvfb openbox xdotool (sandbox desktop + live view) · x11-xserver-utils (X11) · ydotool wtype grim (Wayland) · python3-gi gir1.2-atspi-2.0
 #          python3-pyatspi at-spi2-core (accessibility) · libasound2 libportaudio2 (audio) · espeak-ng (TTS fallback)
 SYSTEM_PKGS=(python3 python3-venv python3-pip nodejs npm fakeroot dpkg libasound2-dev libportaudio2 portaudio19-dev
-             xdotool x11-xserver-utils ydotool wtype grim espeak-ng python3-gi gir1.2-atspi-2.0 python3-pyatspi
+             xvfb openbox xdotool x11-xserver-utils ydotool wtype grim espeak-ng python3-gi gir1.2-atspi-2.0 python3-pyatspi
              at-spi2-core libgtk-3-0 libnss3 libxss1 libxtst6 xdg-utils libsecret-1-0)
 if [[ $INSTALL_SYS -eq 1 ]]; then
   command -v apt-get >/dev/null || die "--install-system-deps needs apt (Debian/Ubuntu). Install equivalents manually."

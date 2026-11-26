@@ -5,7 +5,8 @@ import { Banners, Toasts } from './components/Banners';
 import { ChatView } from './components/ChatView';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { Hud } from './components/Hud';
-import { IconSidebar } from './components/Icons';
+import { IconMonitor, IconSidebar } from './components/Icons';
+import { LiveView } from './components/LiveView';
 import { LoginView } from './components/LoginView';
 import { PromptBar } from './components/PromptBar';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -30,7 +31,7 @@ function useTheme(): void {
 }
 
 function Shell() {
-  const { chat, agent, sidebarOpen, set, settingsOpen, confirm, hud } = useUi();
+  const { chat, agent, sidebarOpen, set, settingsOpen, confirm, hud, liveOpen, settings } = useUi();
   const bridgeMode = useUi((s) => s.settings.bridgeMode);
   const auth = useUi((s) => s.auth);
   const loaded = useUi((s) => s.loaded);
@@ -57,11 +58,18 @@ function Shell() {
             </span>
           )}
           {hud && <span className="text-xs text-muted">HUD active</span>}
+          {settings.desktopMode === 'sandbox' && (
+            <button onClick={() => set({ liveOpen: !liveOpen })} aria-pressed={liveOpen} title="Show / hide the live view"
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition max-[979px]:hidden ${liveOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-line/50 hover:text-ink'}`}>
+              <IconMonitor size={15} /> Live view
+            </button>
+          )}
         </header>
         <Banners />
         <div className="min-h-0 flex-1"><ChatView /></div>
         <PromptBar />
       </main>
+      {liveOpen && settings.desktopMode === 'sandbox' && <LiveView />}
       {settingsOpen && <SettingsPanel />}
       {confirm && <ConfirmDialog req={confirm} />}
       <Toasts />

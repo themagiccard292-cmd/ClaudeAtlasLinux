@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AtlasEvent } from '../../shared/ipc';
 import type {
-  ActionRecord, AgentAction, AgentReply, AgentState, BackendInfo, Chat, ChatMessage, Settings, StepRecord,
+  ActionRecord, AgentAction, AgentReply, AgentState, BackendInfo, Chat, ChatMessage, SandboxState, Settings, StepRecord,
 } from '../../shared/types';
 import type { BackendClient } from '../backend/client';
 import { thumbnailDataUrl } from '../bridge/imageUtil';
@@ -65,6 +65,9 @@ export class AgentRunner {
   private interjections: string[] = [];
   private confirms = new Map<string, { resolve: (ok: boolean) => void; chatId: string }>();
   private expectingOwnKill = false;
+  /** Which desktop the current task drives. */
+  private target: 'real' | 'sandbox' = 'real';
+  private streamStopTimer: NodeJS.Timeout | null = null;
   private atspiHints = true;
 
   constructor(private readonly d: RunnerDeps) {}
@@ -231,10 +234,15 @@ export class AgentRunner {
       }
       await backend.call('kill.reset').catch(() => undefined);
       await backend.call('voice.agent_busy', { busy: true }).catch(() => undefined);
+      this.target = this.d.settings().desktopMode;
+      let sandboxApps: string[] | undefined;
+      if (this.target === 'sandbox') sandboxApps = await this.prepareSandbox(backend);
       await bridge.startConversation();
-      this.d.enterHud();
-      hudShown = true;
-      await this.agentLoop(chat, goal, bridge, backend, info);
+      if (this.target === 'real') {
+        this.d.enterHud(); // your own screen: hide this window, show the pill
+        hudShown = true;
+      }
+      await this.agentLoop(chat, goal, bridge, backend, info, sandboxApps);
     } catch (err) {
       this.reportFailure(chat, err);
     } finally {
@@ -246,10 +254,45 @@ export class AgentRunner {
       this.releaseAllConfirms(false);
       this.resume();
       if (hudShown) this.d.exitHud();
+      if (this.target === 'sandbox' && backend) this.scheduleStreamStop(backend);
       this.abort = null;
       this.setState({ status: 'idle', step: 0, label: undefined });
       this.d.emit({ type: 'chat:list', chats: this.d.store.listChats() });
     }
+  }
+
+  /** Start the private virtual desktop + live stream; returns the apps installed there. */
+  private async prepareSandbox(backend: BackendClient): Promise<string[]> {
+    if (this.streamStopTimer) clearTimeout(this.streamStopTimer);
+    this.streamStopTimer = null;
+    const cfg = this.d.settings();
+    this.setState({ label: 'Starting the sandbox desktop…' });
+    let st: SandboxState;
+    try {
+      st = await backend.call<SandboxState>('sandbox.start', { width: cfg.sandboxWidth, height: cfg.sandboxHeight }, 45_000);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      throw new Error(`The sandbox desktop could not start: ${why}\nInstall xvfb (sudo apt install xvfb xdotool), or switch to “My desktop” under the prompt box.`);
+    }
+    this.d.emit({ type: 'sandbox', state: st });
+    await backend.call('stream.start', { target: 'sandbox', fps: 15, width: 960, quality: 55 }).catch((e) => this.d.log(`stream.start: ${e}`));
+    try {
+      const r = await backend.call<ExecResult>('action.execute', {
+        target: 'sandbox',
+        action: { action: 'bash', command: 'for a in firefox chromium chromium-browser google-chrome xterm gnome-terminal xfce4-terminal mousepad gedit pluma libreoffice thunar pcmanfm nautilus eog evince; do command -v $a >/dev/null 2>&1 && echo $a; done' },
+      }, 15_000);
+      return (r.output?.stdout ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  private scheduleStreamStop(backend: BackendClient): void {
+    if (this.streamStopTimer) clearTimeout(this.streamStopTimer);
+    this.streamStopTimer = setTimeout(() => {
+      this.streamStopTimer = null;
+      void backend.call('stream.stop').catch(() => undefined);
+    }, 4000);
   }
 
   private reportFailure(chat: Chat, err: unknown): void {
@@ -283,14 +326,14 @@ export class AgentRunner {
 
   // --------------------------------------------------------------- agent mode
   private async capture(backend: BackendClient): Promise<Shot> {
-    const mask = this.d.hudMask();
+    const mask = this.target === 'real' ? this.d.hudMask() : null; // the sandbox has no HUD on it
     const r = await backend.call<{ image_b64: string; width: number; height: number; changed: boolean | null }>(
-      'screen.capture', { mask: mask ?? undefined, cursor: true }, 40_000);
+      'screen.capture', { target: this.target, mask: mask ?? undefined, cursor: true }, 40_000);
     return { jpeg: Buffer.from(r.image_b64, 'base64'), width: r.width, height: r.height, changed: r.changed };
   }
 
   private async activeWindow(backend: BackendClient): Promise<string | undefined> {
-    if (!this.atspiHints) return undefined;
+    if (!this.atspiHints || this.target === 'sandbox') return undefined;
     try {
       const r = await backend.call<{ windows: { app: string; title: string; active: boolean }[] }>('atspi.windows', {}, 6_000);
       const w = r.windows.find((x) => x.active);
@@ -321,14 +364,15 @@ export class AgentRunner {
     }
   }
 
-  private async agentLoop(chat: Chat, goal: string, bridge: ClaudeBridge, backend: BackendClient, info?: BackendInfo): Promise<void> {
+  private async agentLoop(chat: Chat, goal: string, bridge: ClaudeBridge, backend: BackendClient, info?: BackendInfo, sandboxApps?: string[]): Promise<void> {
     const settings = this.d.settings();
     let shot = await this.capture(backend);
     const env: PromptEnv = {
       session: info?.session.kind ?? 'unknown',
       desktop: info?.session.desktop ?? '',
       screen: { width: shot.width, height: shot.height },
-      hasAtspi: !!info?.atspi.available,
+      hasAtspi: !!info?.atspi.available && this.target === 'real',
+      sandbox: this.target === 'sandbox' ? { apps: sandboxApps ?? [] } : undefined,
       tools: Object.entries(info?.session.tools ?? {}).filter(([, v]) => v).map(([k]) => k),
     };
     let prompt = buildInitialPrompt(goal, env);
@@ -414,7 +458,7 @@ export class AgentRunner {
     touch();
     let res: ExecResult;
     try {
-      res = await backend.call<ExecResult>('action.execute', { action: rec.action }, Math.max(30_000, timeout));
+      res = await backend.call<ExecResult>('action.execute', { target: this.target, action: rec.action }, Math.max(30_000, timeout));
       if (res.needs_confirmation) {
         rec.status = 'awaiting_approval';
         rec.risk = res.risk;
@@ -427,7 +471,7 @@ export class AgentRunner {
         }
         rec.status = 'running';
         touch();
-        res = await backend.call<ExecResult>('action.execute', { action: rec.action, approved: true }, Math.max(30_000, timeout));
+        res = await backend.call<ExecResult>('action.execute', { target: this.target, action: rec.action, approved: true }, Math.max(30_000, timeout));
       }
     } catch (e) {
       rec.status = this.abort?.signal.aborted ? 'killed' : 'error';

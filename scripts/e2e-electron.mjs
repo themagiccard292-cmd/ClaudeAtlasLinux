@@ -61,6 +61,12 @@ let input = ''; process.stdin.on('data', d => input += d); process.stdin.on('end
     reply = st.n === 1
       ? fence({ thought: 'Delete the victim', actions: [{ action: 'bash', command: 'rm -f ' + process.env.VICTIM }], done: false, message: 'Deleting' })
       : fence({ thought: 'ok', actions: [], done: true, message: 'Finished after the answer.' });
+  } else if (scenario === 'sandbox') {
+    reply = st.n === 1
+      ? fence({ thought: 'Open a terminal on the sandbox', actions: [
+          { action: 'bash', command: "nohup xterm -bg '#00aa00' -fg white -geometry 70x22+60+60 >/dev/null 2>&1 & echo $DISPLAY > " + process.env.DISPFILE + "; sleep 1.5" },
+          { action: 'click', x: 1100, y: 600, target: 'far corner' }], done: false, message: 'Launching a terminal' })
+      : fence({ thought: 'Looks right', actions: [], done: true, message: 'Terminal is open on the sandbox.' });
   } else if (scenario === 'badjson') {
     reply = st.n <= 2 ? 'I will just describe it in prose.' : fence({ actions: [], done: true, message: 'recovered after reminders' });
   } else { reply = fence({ actions: [], done: true, message: 'noop' }); }
@@ -81,7 +87,7 @@ try {
     executablePath: electronBin,
     args: [...(packagedApp ? [] : [root]), '--no-sandbox', `--user-data-dir=${join(tmp, 'profile')}`],
     env: {
-      ...process.env, DISPLAY, XDG_SESSION_TYPE: 'x11', WAYLAND_DISPLAY: '', FAKE_DIR: tmp, MARKER: marker, VICTIM: victim,
+      ...process.env, DISPLAY, XDG_SESSION_TYPE: 'x11', WAYLAND_DISPLAY: '', FAKE_DIR: tmp, MARKER: marker, VICTIM: victim, DISPFILE: join(tmp, 'display.txt'),
       ELECTRON_ENABLE_LOGGING: '0',
       // poison the environment: the CLI bridge must scrub these so usage can never bill an API account
       ANTHROPIC_API_KEY: 'sk-ant-must-not-leak', ANTHROPIC_AUTH_TOKEN: 'tok-must-not-leak', ANTHROPIC_BASE_URL: 'https://example.invalid',
@@ -111,7 +117,7 @@ try {
   if (shotsDir) await win.screenshot({ path: join(shotsDir, 'electron-login.png') });
 
   // ---- 2. switch to CLI bridge (fake claude) -----------------------------------------------------
-  await inv('settings:set', { bridgeMode: 'cli', cliPath: fake, stepDelayMs: 100, maxSteps: 6 });
+  await inv('settings:set', { bridgeMode: 'cli', cliPath: fake, stepDelayMs: 100, maxSteps: 6, desktopMode: 'real' });
   await win.waitForFunction(() => !/Sign in with Claude Pro/.test(document.body.innerText), null, { timeout: 10_000 });
   check('CLI mode bypasses the login screen', true);
 
@@ -213,6 +219,52 @@ try {
   check('kill switch aborted the 60 s action within seconds', Date.now() - t0 < 25_000 && c5.messages.some((m) => /Emergency stop|Stopped/.test(m.content)), `${Date.now() - t0}ms ${JSON.stringify(c5.messages.map((m) => m.content.slice(0, 60)))}`);
   check('no stray `sleep 60` left running', execSync('pgrep -f "[s]leep 60" || true').toString().trim() === '');
 
+  // ---- 6b. SANDBOX DESKTOP + LIVE VIEW ---------------------------------------------------------
+  await inv('settings:set', { desktopMode: 'sandbox' });
+  setScenario('sandbox');
+  const chat6 = await inv('chat:create');
+  await win.getByText('create the marker file').first().click(); // any chat; then open the new one
+  await win.evaluate(() => { window.__events.length = 0; });
+  await inv('agent:start', { chatId: chat6.id, text: 'open a terminal on your desktop', mode: 'agent' });
+  let sawHud6 = false, mainStayedVisible = true;
+  for (let i = 0; i < 160; i++) {
+    sawHud6 ||= app.windows().some((w) => w.url().includes('#/hud'));
+    const vis = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isVisible() && !w.webContents.getURL().includes('hud') && w.webContents.getURL().includes('index.html')).length);
+    mainStayedVisible &&= vis >= 1;
+    if ((await inv('agent:state')).status === 'idle' && i > 4) break;
+    await sleep(250);
+  }
+  const ev6 = await events();
+  {
+    const c6 = await inv('chat:get', chat6.id);
+    const summary = c6.messages.map((m) => m.step ? { step: m.step.step, actions: m.step.actions.map((a) => `${a.action.action}:${a.status}${a.message ? ' (' + String(a.message).slice(0, 80) + ')' : ''}`) } : `${m.role}: ${m.content.slice(0, 160)}`);
+    const fr = ev6.filter((e) => e.type === 'live:frame');
+    console.log('  [debug sandbox task]', JSON.stringify(summary), `| frames=${fr.length} withJpeg=${fr.filter((e) => e.jpeg).length} ended=${fr.filter((e) => e.ended).length} sandboxEvts=${ev6.filter((e) => e.type === 'sandbox').length} fx=${ev6.filter((e) => e.type === 'live:fx').length}`);
+  }
+  const frames = ev6.filter((e) => e.type === 'live:frame' && e.jpeg);
+  const pointers = new Set(ev6.filter((e) => e.type === 'live:frame' && e.pointer).map((e) => e.pointer.map((v) => v.toFixed(2)).join(',')));
+  const fxClick = ev6.find((e) => e.type === 'live:fx' && e.fx.kind === 'click');
+  check('sandbox desktop started (Xvfb on its own display)', ev6.some((e) => e.type === 'sandbox' && e.state.running && /^:\d+$/.test(e.state.display)), JSON.stringify(ev6.find((e) => e.type === 'sandbox')));
+  check('NO HUD window in sandbox mode, main window stays open', !sawHud6 && mainStayedVisible, `hud=${sawHud6} main=${mainStayedVisible}`);
+  check(`live video frames reached the UI (${frames.length} JPEG frames)`, frames.length >= 3 && frames[0].w > 0);
+  check(`agent pointer travelled through intermediate positions (${pointers.size} distinct)`, pointers.size >= 4);
+  check('click effect (ripple) event with normalised coordinates', !!fxClick && fxClick.fx.x > 0.7 && fxClick.fx.y > 0.7, JSON.stringify(fxClick));
+  const sbDisplay = existsSync(join(tmp, 'display.txt')) ? readFileSync(join(tmp, 'display.txt'), 'utf8').trim() : '';
+  check(`agent's shell ran on the sandbox display (${sbDisplay}), not the real one (${DISPLAY})`, /^:\d+$/.test(sbDisplay) && sbDisplay !== DISPLAY);
+  const prompts2 = readFileSync(join(tmp, 'prompts.log'), 'utf8');
+  check('prompt tells Claude it is on a private virtual desktop and which apps exist', /PRIVATE VIRTUAL DESKTOP/.test(prompts2) && /Applications installed here:/.test(prompts2));
+  // What CLAUDE saw on its 2nd turn: a screenshot of the sandbox with the green xterm on it
+  const shotFiles = execSync(`ls -t ${join(tmp, 'profile', 'cli-work')}/screen-*.jpg`).toString().trim().split('\n');
+  const green = execSync(`python3 -c "from PIL import Image; im=Image.open('${shotFiles[0]}').convert('RGB'); w,h=im.size; r,g,b=im.getpixel((int(w*0.25),int(h*0.30))); print(int(g>120 and r<70 and b<70))"`).toString().trim();
+  check('Claude\'s screenshot is of the SANDBOX (green terminal visible there)', green === '1', shotFiles[0]);
+  check('real desktop untouched: no green terminal on the real display', execSync(`DISPLAY=${DISPLAY} xwininfo -root -tree 2>/dev/null | grep -ci xterm || true`).toString().trim() === '0');
+  // the renderer shows the live panel with a painted canvas
+  const panel = win.locator('aside[aria-label="Live view"]');
+  await panel.waitFor({ timeout: 8000 }).then(() => check('Live view panel is visible in the app', true)).catch(() => check('Live view panel is visible in the app', false));
+  const painted = await win.evaluate(() => { const c = document.querySelector('aside[aria-label="Live view"] canvas'); if (!c) return false; const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4000) n += d[i] + d[i + 1] + d[i + 2]; return n > 0; });
+  check('canvas contains the streamed desktop image (CSP-safe decode)', painted);
+  if (shotsDir) await win.screenshot({ path: join(shotsDir, 'electron-live-view.png') });
+
   // ---- 7. chats persisted to disk ---------------------------------------------------------------------
   check('chat history persisted as JSON on disk', existsSync(join(tmp, 'profile', 'chats', `${chat.id}.json`)) || (await sleep(1200), existsSync(join(tmp, 'profile', 'chats', `${chat.id}.json`))));
 } catch (e) {
@@ -221,7 +273,7 @@ try {
 } finally {
   await app?.close().catch(() => undefined);
   await sleep(1500);
-  const orphan = execSync('pgrep -f "[s]erver.py --host 127.0.0.1|[b]ackend-linux --host 127.0.0.1" || true').toString().trim();
+  const orphan = execSync('pgrep -f "[s]erver.py --host 127.0.0.1|[b]ackend-linux --host 127.0.0.1|[X]vfb -displayfd" || true').toString().trim();
   check('sidecar exits with the app (no orphan)', orphan === '', orphan);
   xvfb.kill();
 }

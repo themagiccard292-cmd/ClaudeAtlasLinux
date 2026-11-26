@@ -44,6 +44,11 @@ export class Windows {
     });
   }
 
+  /** High-rate events (live video frames) only the main window needs. */
+  sendMain(event: AtlasEvent): void {
+    if (this.main && !this.main.isDestroyed()) this.main.webContents.send('atlas:event', event);
+  }
+
   broadcast(event: AtlasEvent): void {
     for (const win of [this.main, this.hud]) {
       if (win && !win.isDestroyed()) win.webContents.send('atlas:event', event);

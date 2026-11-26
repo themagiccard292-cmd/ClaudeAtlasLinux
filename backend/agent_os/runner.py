@@ -12,7 +12,7 @@ from .errors import ActionError, KillSwitchTriggered
 from .killswitch import KillSwitch, kill_process_group
 
 
-def clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+def clean_env(extra: dict[str, str | None] | None = None) -> dict[str, str]:
     """Environment for child processes.
 
     PyInstaller prepends its extraction dir to LD_LIBRARY_PATH, which breaks
@@ -25,8 +25,11 @@ def clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
         else:
             env.pop("LD_LIBRARY_PATH", None)
     env.pop("ELECTRON_RUN_AS_NODE", None)
-    if extra:
-        env.update(extra)
+    for key, value in (extra or {}).items():
+        if value is None:
+            env.pop(key, None)  # e.g. WAYLAND_DISPLAY for apps running on the sandbox X display
+        else:
+            env[key] = value
     return env
 
 
@@ -52,8 +55,10 @@ class CmdResult:
 
 
 class CommandRunner:
-    def __init__(self, killswitch: KillSwitch | None = None) -> None:
+    def __init__(self, killswitch: KillSwitch | None = None, env_extra: dict[str, str | None] | None = None) -> None:
         self.ks = killswitch or KillSwitch()
+        #: extra/overridden variables for every child (the sandbox desktop sets DISPLAY etc. here)
+        self.env_extra = env_extra or {}
 
     @staticmethod
     def which(name: str) -> str | None:
@@ -76,7 +81,7 @@ class CommandRunner:
                 stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                env=env or clean_env(),
+                env=env or clean_env(self.env_extra),
                 cwd=cwd,
                 start_new_session=True,
             )

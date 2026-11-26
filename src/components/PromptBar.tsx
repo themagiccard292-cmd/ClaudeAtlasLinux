@@ -7,7 +7,7 @@ import { IconBolt, IconMic, IconSend, IconStop } from './Icons';
 export function PromptBar() {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
-  const { mode, set, send, agent, voice, backend, kill } = useUi();
+  const { mode, set, send, agent, voice, backend, kill, settings, patchSettings } = useUi();
   const running = agent.status !== 'idle';
   const listening = voice.state === 'listening' || voice.state === 'hearing';
   const speaking = voice.state === 'speaking';
@@ -65,6 +65,16 @@ export function PromptBar() {
                 </button>
               ))}
             </div>
+            {mode === 'agent' && (
+              <div role="group" aria-label="Which desktop" className="flex rounded-lg border border-line p-0.5 text-xs">
+                {([['sandbox', 'Sandbox', 'Claude works on a private virtual desktop you watch live'], ['real', 'My desktop', 'Claude drives your real screen (the window hides while it works)']] as const).map(([m, label, tip]) => (
+                  <button key={m} title={tip} disabled={running} onClick={() => void patchSettings({ desktopMode: m })} aria-pressed={settings.desktopMode === m}
+                    className={`rounded-md px-2.5 py-1 font-medium transition disabled:opacity-60 ${settings.desktopMode === m ? 'bg-ink text-bg' : 'text-muted hover:text-ink'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <button

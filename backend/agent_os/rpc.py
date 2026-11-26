@@ -32,6 +32,13 @@ class RpcService:
             "env.info": self.env_info,
             "screen.capture": self.screen_capture,
             "action.execute": self.action_execute,
+            "sandbox.start": lambda p: ctx.sandbox.start(int(p.get("width", 1280)), int(p.get("height", 720))),
+            "sandbox.stop": lambda p: (ctx.streamer.stop(), ctx.sandbox.stop())[1],
+            "sandbox.status": lambda p: ctx.sandbox.status(),
+            "stream.start": lambda p: ctx.streamer.start(str(p.get("target", "sandbox")), float(p.get("fps", 10)),
+                                                         int(p.get("width", 960)), int(p.get("quality", 55)), p.get("mask")),
+            "stream.stop": lambda p: ctx.streamer.stop(),
+            "stream.mask": lambda p: (ctx.streamer.set_mask(p.get("mask")), {"ok": True})[1],
             "action.classify": lambda p: ctx.executor.classify(p["action"]),
             "atspi.status": lambda p: ctx.atspi.status(),
             "atspi.windows": lambda p: {"windows": ctx.atspi.windows()},
@@ -65,17 +72,25 @@ class RpcService:
             "hotkeys": c.hotkey_status,
             "voice": c.voice.state(),
             "kill": c.ks.status(),
+            "sandbox": c.sandbox.status(),
             "primary_monitor": _monitor(c.capturer.primary_monitor()),
         }
 
+    def _target(self, p: dict):
+        name = str(p.get("target", "real"))
+        tgt = self.ctx.get_target(name)
+        if tgt is None:
+            raise RpcError("no_target", f"The {name} desktop is not running")
+        return tgt
+
     def screen_capture(self, p: dict) -> dict:
-        shot = self.ctx.capturer.capture(
+        shot = self._target(p).capturer.capture(
             max_width=int(p.get("max_width", 1280)), max_height=int(p.get("max_height", 720)),
             quality=int(p.get("quality", 70)), mask=p.get("mask"), draw_cursor=bool(p.get("cursor", True)))
         return {"image_b64": base64.b64encode(shot.jpeg).decode("ascii"), **shot.meta()}
 
     def action_execute(self, p: dict) -> dict:
-        return self.ctx.executor.execute(p["action"], approved=bool(p.get("approved", False)))
+        return self._target(p).executor.execute(p["action"], approved=bool(p.get("approved", False)))
 
     def kill_trigger(self, p: dict) -> dict:
         self.ctx.ks.trigger(str(p.get("source", "ui")))

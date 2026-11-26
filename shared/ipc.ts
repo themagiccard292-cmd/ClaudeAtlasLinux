@@ -1,6 +1,6 @@
 import type {
   AgentState, AppInfo, AudioDevices, AuthState, BackendState, BridgeDiagnosis, Chat, ChatMessage, ChatSummary,
-  ConfirmRequest, Settings, VoiceUiState, Workflow,
+  ConfirmRequest, LiveFx, SandboxState, Settings, VoiceUiState, Workflow,
 } from './types';
 
 /** Request/response channels (renderer → main). */
@@ -28,6 +28,9 @@ export interface InvokeMap {
   'agent:pause': { args: []; result: void };
   'agent:resume': { args: []; result: void };
   'agent:confirm': { args: [{ id: string; approved: boolean }]; result: void };
+  'sandbox:state': { args: []; result: SandboxState | null };
+  'sandbox:start': { args: []; result: SandboxState };
+  'sandbox:reset': { args: []; result: SandboxState };
   'kill:trigger': { args: []; result: void };
   'kill:reset': { args: []; result: void };
   'voice:devices': { args: []; result: AudioDevices };
@@ -61,6 +64,9 @@ export type AtlasEvent =
   | { type: 'voice:status'; message: string }
   | { type: 'kill'; active: boolean; source?: string }
   | { type: 'hud'; active: boolean }
+  | { type: 'live:frame'; target: 'real' | 'sandbox'; seq: number; w: number; h: number; pointer: [number, number] | null; jpeg: string | null; ended?: boolean }
+  | { type: 'live:fx'; fx: LiveFx }
+  | { type: 'sandbox'; state: SandboxState }
   | { type: 'settings'; settings: Settings }
   | { type: 'toast'; level: 'info' | 'warn' | 'error'; message: string };
 
@@ -68,7 +74,8 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = [
   'app:info', 'backend:state', 'auth:state', 'auth:beginLogin', 'auth:cancelLogin', 'auth:logout',
   'bridge:diagnose', 'settings:get', 'settings:set', 'chat:list', 'chat:get', 'chat:create', 'chat:delete',
   'workflow:list', 'workflow:save', 'workflow:delete', 'agent:state', 'agent:start', 'agent:stop',
-  'agent:takeover', 'agent:pause', 'agent:resume', 'agent:confirm', 'kill:trigger', 'kill:reset',
+  'agent:takeover', 'agent:pause', 'agent:resume', 'agent:confirm', 'sandbox:state', 'sandbox:start',
+  'sandbox:reset', 'kill:trigger', 'kill:reset',
   'voice:devices', 'voice:ptt', 'voice:handsFree', 'voice:speak', 'voice:stopSpeaking',
 ];
 

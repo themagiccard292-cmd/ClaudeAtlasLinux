@@ -40,6 +40,27 @@ def _chunks(text: str, size: int = 240):
         yield text[i : i + size]
 
 
+def glide_path(x0: int, y0: int, x1: int, y1: int, max_seconds: float = 0.55) -> list[tuple[int, int, float]]:
+    """Eased (smoothstep) pointer path from (x0,y0) to (x1,y1) as (x, y, delay) triples.
+
+    Long moves take longer but never more than `max_seconds`; tiny moves are instant. This is what makes
+    the cursor *glide* so a person can follow it, instead of teleporting."""
+    import math
+
+    dist = math.hypot(x1 - x0, y1 - y0)
+    if dist < 14:
+        return [(x1, y1, 0.0)]
+    steps = max(6, min(30, int(dist / 32)))
+    duration = min(max_seconds, 0.16 + dist / 2400)
+    dt = duration / steps
+    out = []
+    for i in range(1, steps + 1):
+        t = i / steps
+        e = t * t * (3 - 2 * t)
+        out.append((round(x0 + (x1 - x0) * e), round(y0 + (y1 - y0) * e), dt))
+    return out
+
+
 def _steps(x1: int, y1: int, x2: int, y2: int, n: int = 10):
     for i in range(1, n + 1):
         yield round(x1 + (x2 - x1) * i / n), round(y1 + (y2 - y1) * i / n)
@@ -48,10 +69,12 @@ def _steps(x1: int, y1: int, x2: int, y2: int, n: int = 10):
 class _Base:
     name = "base"
 
-    def __init__(self, runner: CommandRunner, ks: KillSwitch, guard: InjectionGuard) -> None:
+    def __init__(self, runner: CommandRunner, ks: KillSwitch, guard: InjectionGuard, display: str | None = None) -> None:
         self.r = runner
         self.ks = ks
         self.guard = guard
+        self.display = display  # X display this driver targets (None = $DISPLAY)
+        self.glide = env_choice("ATLAS_GLIDE", "1") != "0"
 
     def _run(self, argv: list[str], timeout: float = 10.0) -> None:
         res = self.r.run(argv, timeout=timeout)
@@ -68,33 +91,43 @@ class _Base:
 class XdotoolDriver(_Base):
     name = "xdotool"
 
+    def _go(self, x: int, y: int) -> list[str]:
+        """xdotool sub-commands that glide the pointer to (x, y), ending with a short settle pause.
+        NB: never use `mousemove --sync` — it blocks forever if the pointer is already there."""
+        cur = self.pointer() if self.glide else None
+        path = glide_path(cur[0], cur[1], x, y) if cur else [(x, y, 0.0)]
+        argv: list[str] = []
+        for px, py, dt in path:
+            argv += ["mousemove", str(px), str(py)]
+            if dt:
+                argv += ["sleep", f"{dt:.4f}"]
+        return argv + ["sleep", "0.05"]
+
     def move(self, x, y):
-        # NB: never use `mousemove --sync` — it blocks forever if the pointer is already there.
-        self._run(["xdotool", "mousemove", str(x), str(y), "sleep", "0.03"])
+        self._run(["xdotool", *self._go(x, y)], timeout=15)
 
     def click(self, x, y, button="left", count=1):
         b = BUTTONS_X11[button]
-        self._run(["xdotool", "mousemove", str(x), str(y), "sleep", "0.05",
-                   "click", "--repeat", str(count), "--delay", "90", b])
+        self._run(["xdotool", *self._go(x, y), "click", "--repeat", str(count), "--delay", "90", b], timeout=15)
 
     def drag(self, x1, y1, x2, y2, button="left"):
         b = BUTTONS_X11[button]
-        argv = ["xdotool", "mousemove", str(x1), str(y1), "sleep", "0.05", "mousedown", b, "sleep", "0.12"]
-        for px, py in _steps(x1, y1, x2, y2):
-            argv += ["mousemove", str(px), str(py), "sleep", "0.02"]
+        argv = ["xdotool", *self._go(x1, y1), "mousedown", b, "sleep", "0.12"]
+        for px, py, dt in glide_path(x1, y1, x2, y2, max_seconds=0.9):
+            argv += ["mousemove", str(px), str(py), "sleep", f"{max(dt, 0.015):.4f}"]
         argv += ["sleep", "0.08", "mouseup", b]
-        self._run(argv, timeout=20)
+        self._run(argv, timeout=25)
 
     def scroll(self, x, y, dx, dy):
         argv = ["xdotool"]
         if x is not None and y is not None:
-            argv += ["mousemove", str(x), str(y), "sleep", "0.05"]
+            argv += self._go(x, y)
         # X11 wheel buttons: 4 up, 5 down, 6 left, 7 right
         for amount, pos, neg in ((dy, "5", "4"), (dx, "7", "6")):
             if amount:
                 argv += ["click", "--repeat", str(abs(amount)), "--delay", "25", pos if amount > 0 else neg]
         if len(argv) > 1:
-            self._run(argv)
+            self._run(argv, timeout=15)
 
     def type_text(self, text):
         for part in _chunks(text):
@@ -106,7 +139,7 @@ class XdotoolDriver(_Base):
             self._run(["xdotool", "key", "--clearmodifiers", K.xdotool_combo(keys)])
 
     def pointer(self):
-        pos = query_pointer()
+        pos = query_pointer(self.display)
         if pos:
             return pos
         res = self.r.run(["xdotool", "getmouselocation", "--shell"], timeout=2)
@@ -141,11 +174,18 @@ class PynputDriver(_Base):
                  "apostrophe": "'", "grave": "`", "backslash": "\\", "comma": ",", "period": ".", "slash": "/"}
         return chars.get(name, name)
 
+    def _go(self, x, y):
+        cur = tuple(int(v) for v in self.msc.position) if self.glide else None
+        for px, py, dt in (glide_path(cur[0], cur[1], x, y) if cur else [(x, y, 0.0)]):
+            self.msc.position = (px, py)
+            if dt:
+                self.ks.sleep(dt)
+
     def move(self, x, y):
-        self.msc.position = (x, y)
+        self._go(x, y)
 
     def click(self, x, y, button="left", count=1):
-        self.msc.position = (x, y)
+        self._go(x, y)
         time.sleep(0.05)
         self.msc.click(getattr(self._ms.Button, button), count)
 
@@ -300,17 +340,18 @@ class YdotoolDriver(_Base):
             self._yd("key", *K.ydotool_events(keys))
 
 
-def make_driver(env: DisplayEnv, runner: CommandRunner, ks: KillSwitch, guard: InjectionGuard) -> InputDriver:
-    pref = env_choice("ATLAS_INPUT_BACKEND")
+def make_driver(env: DisplayEnv, runner: CommandRunner, ks: KillSwitch, guard: InjectionGuard,
+                force: str | None = None) -> InputDriver:
+    pref = force or env_choice("ATLAS_INPUT_BACKEND")
     have = runner.which
 
     def build(kind: str):
         if kind == "xdotool":
             if not have("xdotool"):
                 raise UnsupportedError("xdotool not installed")
-            return XdotoolDriver(runner, ks, guard)
+            return XdotoolDriver(runner, ks, guard, env.display)
         if kind == "pynput":
-            return PynputDriver(runner, ks, guard)
+            return PynputDriver(runner, ks, guard, env.display)
         if kind == "ydotool":
             if not have("ydotool"):
                 raise UnsupportedError("ydotool not installed")

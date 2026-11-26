@@ -94,6 +94,16 @@ export function SettingsPanel() {
         </Card>
 
         <Card title="Agent">
+          <Row label="Where Claude works" hint="Sandbox = a private virtual desktop you watch live. My desktop = your real screen.">
+            <select value={settings.desktopMode} onChange={(e) => void patchSettings({ desktopMode: e.target.value as 'sandbox' | 'real' })} className={input}>
+              <option value="sandbox">Sandbox desktop (live view)</option><option value="real">My desktop</option>
+            </select>
+          </Row>
+          <Row label="Sandbox screen size" hint="Applies the next time the sandbox starts.">
+            <select value={`${settings.sandboxWidth}x${settings.sandboxHeight}`} onChange={(e) => { const [w, h] = e.target.value.split('x').map(Number); void patchSettings({ sandboxWidth: w, sandboxHeight: h }); }} className={input}>
+              <option value="1280x720">1280 × 720</option><option value="1600x900">1600 × 900</option><option value="1920x1080">1920 × 1080</option>
+            </select>
+          </Row>
           <Row label="Max steps per task"><input type="number" min={1} max={200} value={settings.maxSteps} onChange={(e) => void patchSettings({ maxSteps: Math.max(1, Math.min(200, Number(e.target.value) || 40)) })} className={`${input} w-20`} /></Row>
           <Row label="Delay between actions" hint="Milliseconds"><input type="number" min={0} max={5000} step={100} value={settings.stepDelayMs} onChange={(e) => void patchSettings({ stepDelayMs: Math.max(0, Number(e.target.value) || 0) })} className={`${input} w-24`} /></Row>
           <Row label="Mini-HUD window type" hint="Try “toolbar” if your window manager hides the pill.">

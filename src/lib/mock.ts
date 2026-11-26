@@ -3,6 +3,8 @@
 import type { AtlasApi, AtlasEvent } from '../../shared/ipc';
 import { type Chat, DEFAULT_SETTINGS, type Settings } from '../../shared/types';
 
+const SANDBOX = { running: true, display: ':3', width: 1280, height: 720, available: true, reason: null, window_manager: 'openbox' };
+
 function fakeDesktop(): string {
   const c = document.createElement('canvas');
   c.width = 640;
@@ -95,7 +97,8 @@ export function installMock(): void {
         case 'chat:get': return chat;
         case 'chat:create': return { ...chat, id: '22222222-2222-4222-8222-222222222222', title: 'New chat', messages: [] };
         case 'workflow:list': return [{ id: 'w1', name: 'Morning briefing', prompt: 'Open my calendar and summarise today', createdAt: 1 }, { id: 'w2', name: 'Clean Downloads', prompt: 'Sort ~/Downloads by type', createdAt: 2 }];
-        case 'agent:state': return view === 'running' || view === 'hud' || view === 'confirm' ? { status: view === 'confirm' ? 'waiting_confirmation' : 'running', chatId: chat.id, step: 3, maxSteps: 40, label: 'Clicking: Files launcher' } : { status: 'idle', step: 0, maxSteps: 40 };
+        case 'sandbox:state': return SANDBOX;
+        case 'agent:state': return view === 'live' ? { status: 'running', chatId: chat.id, step: 4, maxSteps: 40, label: 'Clicking: Search box' } : view === 'running' || view === 'hud' || view === 'confirm' ? { status: view === 'confirm' ? 'waiting_confirmation' : 'running', chatId: chat.id, step: 3, maxSteps: 40, label: 'Clicking: Files launcher' } : { status: 'idle', step: 0, maxSteps: 40 };
         case 'voice:devices': return { input: [{ index: 0, name: 'Built-in Microphone', hostapi: 'ALSA', sample_rate: 48000 }, { index: 3, name: 'USB Headset', hostapi: 'ALSA', sample_rate: 48000 }], output: [{ index: 1, name: 'Built-in Speakers', hostapi: 'ALSA', sample_rate: 48000 }], default_input: 0, default_output: 1 };
         case 'bridge:diagnose': return { ok: true, url: 'https://claude.ai/new', signedIn: true, checks: { editor: 1, sendButton: 1 }, notes: [] };
         default: return undefined;
@@ -116,6 +119,33 @@ export function installMock(): void {
     let t = 0;
     setInterval(() => emit({ type: 'voice:level', level: 0.25 + 0.55 * Math.abs(Math.sin(t += 0.45)), source: 'mic' }), 50);
     setTimeout(() => emit({ type: 'voice:state', state: 'listening' }), 100);
+  }
+  if (view === 'live') {
+    // simulated sandbox stream: a browser-ish window, a pointer gliding between targets, periodic click ripples
+    const frame = () => {
+      const c = document.createElement('canvas'); c.width = 960; c.height = 540; const g = c.getContext('2d')!;
+      g.fillStyle = '#2f2e2b'; g.fillRect(0, 0, 960, 540);
+      g.fillStyle = '#f4f2ec'; g.fillRect(60, 36, 840, 440); g.fillStyle = '#dedbd0'; g.fillRect(60, 36, 840, 34);
+      g.fillStyle = '#fff'; g.fillRect(150, 44, 520, 18);
+      g.fillStyle = '#c96442'; g.fillRect(430, 210, 100, 34);
+      g.fillStyle = '#8a877e'; for (let i = 0; i < 7; i++) g.fillRect(100, 280 + i * 22, 600 - (i % 3) * 90, 9);
+      g.fillStyle = '#1b1f27'; g.fillRect(0, 508, 960, 32);
+      return c.toDataURL('image/jpeg', 0.7).split(',')[1];
+    };
+    const jpeg = frame();
+    const stops: Array<[number, number]> = [[0.2, 0.15], [0.55, 0.42], [0.8, 0.72], [0.35, 0.6]];
+    let seq = 0, t = 0;
+    setInterval(() => {
+      t += 0.04;
+      const leg = Math.floor(t) % stops.length, f = t % 1, e = f * f * (3 - 2 * f);
+      const a = stops[leg], b = stops[(leg + 1) % stops.length];
+      emit({ type: 'live:frame', target: 'sandbox', seq: ++seq, w: 960, h: 540, pointer: [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e], jpeg: seq % 30 === 1 ? jpeg : null });
+    }, 66);
+    setInterval(() => {
+      const p = stops[Math.floor(t) % stops.length];
+      emit({ type: 'live:fx', fx: { target: 'sandbox', kind: 'click', x: p[0], y: p[1], label: 'Search box' } });
+    }, 1400);
+    setTimeout(() => emit({ type: 'live:fx', fx: { target: 'sandbox', kind: 'type', label: 'weather today' } }), 900);
   }
   if (view === 'kill') setTimeout(() => emit({ type: 'kill', active: true, source: 'esc-esc' }), 200);
 }

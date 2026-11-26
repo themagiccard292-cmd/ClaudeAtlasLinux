@@ -48,6 +48,8 @@ class Hub:
         for q in list(self.queues):
             if q.qsize() > 500 and '"voice.level"' in frame:  # shed visualiser frames under pressure
                 continue
+            if q.qsize() > 6 and '"screen.frame"' in frame:  # a slow consumer must never build up video backlog
+                continue
             q.put_nowait(frame)
 
 
@@ -62,6 +64,7 @@ def create_app(token: str, ctx_factory: Callable[[Callable[[str, dict], None]], 
         hub.loop = asyncio.get_running_loop()
         ctx = (ctx_factory or AppContext)(hub.emit)
         state["ctx"], state["rpc"] = ctx, RpcService(ctx)
+        ACTIVE["ctx"] = ctx
         if start_services:
             await asyncio.get_running_loop().run_in_executor(pool, ctx.start)
         yield
@@ -128,6 +131,9 @@ def create_app(token: str, ctx_factory: Callable[[Callable[[str, dict], None]], 
     return app
 
 
+ACTIVE: dict = {}
+
+
 def _watch_stdin_for_parent_death() -> None:
     """Electron holds our stdin open; EOF means it died → exit instead of orphaning."""
     def watch() -> None:
@@ -136,6 +142,12 @@ def _watch_stdin_for_parent_death() -> None:
                 pass
         except Exception:
             pass
+        ctx = ACTIVE.get("ctx")
+        if ctx is not None:  # don't leave the sandbox's Xvfb behind
+            try:
+                ctx.stop()
+            except Exception:
+                pass
         os._exit(0)
 
     threading.Thread(target=watch, name="parent-watch", daemon=True).start()
