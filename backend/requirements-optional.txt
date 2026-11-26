@@ -1,0 +1,4 @@
+# Optional extras
+
+piper-tts>=1.2          # fully offline neural TTS (fallback when edge-tts is unreachable)
+pyaudio>=0.2.14         # alternative microphone backend (needs portaudio19-dev to build)

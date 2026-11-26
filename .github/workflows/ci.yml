@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: System packages (X11 e2e + AT-SPI)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool x11-xserver-utils xterm libportaudio2 espeak-ng \
+            python3-gi gir1.2-atspi-2.0 gir1.2-gtk-3.0 at-spi2-core dbus-x11
+      - run: pip install -r backend/requirements-dev.txt
+      - run: python -m pytest backend/tests -q
+
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' }
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  package:
+    needs: [backend, frontend]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 fakeroot dpkg xdotool
+      - run: ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-os-agent-linux
+          path: |
+            release/Claude-OS-Agent.AppImage
+            release/claude-os-agent.deb

@@ -1,0 +1,20 @@
+# Runtime dependencies of the Python OS-automation sidecar.
+# (No Anthropic SDK / API key anywhere — the model is reached through the
+#  user's Claude Pro web session or the local `claude` CLI, from Electron.)
+
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# screen capture + input
+mss>=9.0
+Pillow>=10.0
+numpy>=1.26
+pynput>=1.7.6
+python-xlib>=0.33
+evdev>=1.7; sys_platform == "linux"
+jeepney>=0.8            # XDG Desktop Portal screenshots on Wayland (pure-Python D-Bus)
+
+# 100% keyless voice
+sounddevice>=0.4.6      # needs libportaudio2 (ALSA / PulseAudio / PipeWire-pulse)
+faster-whisper>=1.0     # local STT (CTranslate2); models download on first use
+edge-tts>=6.1           # TTS (no key; needs internet)
