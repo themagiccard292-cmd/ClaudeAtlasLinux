@@ -65,7 +65,14 @@ export class Windows {
       webPreferences: { preload: this.preload, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
     });
     this.secure(win);
-    win.once('ready-to-show', () => win.show());
+    // `ready-to-show` never fires on some GPU/driver setups, which left an invisible window that the
+    // dock could not raise. Show on whichever comes first: ready-to-show, load finished, or 4 s.
+    const reveal = () => {
+      if (!win.isDestroyed() && !win.isVisible()) win.show();
+    };
+    win.once('ready-to-show', reveal);
+    win.webContents.once('did-finish-load', reveal);
+    setTimeout(reveal, 4000);
     win.on('closed', () => {
       this.main = null;
       this.hideLogin();

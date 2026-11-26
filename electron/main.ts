@@ -32,6 +32,10 @@ function userNamespacesBlocked(): boolean {
 }
 if (process.env.APPIMAGE && userNamespacesBlocked()) app.commandLine.appendSwitch('no-sandbox');
 
+// The UI is simple (no WebGL/video), and GPU-process crashes (exit 139) on VMs/NVIDIA drivers can leave a
+// blank or invisible window. Software rendering is the safe default; set ATLAS_ENABLE_GPU=1 to opt in.
+if (!process.env.ATLAS_ENABLE_GPU) app.disableHardwareAcceleration();
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
@@ -175,6 +179,17 @@ async function shutdownBackend(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------- lifecycle
+// Clicking the dock/launcher icon: bring the window back (or recreate it if it was closed).
+app.on('activate', () => {
+  const w = windows?.main;
+  if (w && !w.isDestroyed()) {
+    w.show();
+    w.focus();
+  } else if (windows) {
+    windows.createMain();
+  }
+});
+
 app.on('second-instance', () => {
   const w = windows?.main;
   if (w) {
