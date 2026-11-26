@@ -1,6 +1,6 @@
 import type {
   AgentState, AppInfo, AudioDevices, AuthState, BackendState, BridgeDiagnosis, Chat, ChatMessage, ChatSummary,
-  ConfirmRequest, LiveFx, SandboxState, Settings, VoiceUiState, Workflow,
+  ConfirmRequest, LiveFx, SandboxState, Settings, UpdateState, VoiceUiState, Workflow,
 } from './types';
 
 /** Request/response channels (renderer → main). */
@@ -28,6 +28,10 @@ export interface InvokeMap {
   'agent:pause': { args: []; result: void };
   'agent:resume': { args: []; result: void };
   'agent:confirm': { args: [{ id: string; approved: boolean }]; result: void };
+  'update:state': { args: []; result: UpdateState };
+  'update:check': { args: []; result: UpdateState };
+  'update:download': { args: []; result: UpdateState };
+  'update:install': { args: []; result: void };
   'sandbox:state': { args: []; result: SandboxState | null };
   'sandbox:start': { args: []; result: SandboxState };
   'sandbox:reset': { args: []; result: SandboxState };
@@ -67,6 +71,7 @@ export type AtlasEvent =
   | { type: 'live:frame'; target: 'real' | 'sandbox'; seq: number; w: number; h: number; pointer: [number, number] | null; jpeg: string | null; ended?: boolean }
   | { type: 'live:fx'; fx: LiveFx }
   | { type: 'sandbox'; state: SandboxState }
+  | { type: 'update'; state: UpdateState }
   | { type: 'settings'; settings: Settings }
   | { type: 'toast'; level: 'info' | 'warn' | 'error'; message: string };
 
@@ -74,7 +79,7 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = [
   'app:info', 'backend:state', 'auth:state', 'auth:beginLogin', 'auth:cancelLogin', 'auth:logout',
   'bridge:diagnose', 'settings:get', 'settings:set', 'chat:list', 'chat:get', 'chat:create', 'chat:delete',
   'workflow:list', 'workflow:save', 'workflow:delete', 'agent:state', 'agent:start', 'agent:stop',
-  'agent:takeover', 'agent:pause', 'agent:resume', 'agent:confirm', 'sandbox:state', 'sandbox:start',
+  'agent:takeover', 'agent:pause', 'agent:resume', 'agent:confirm', 'update:state', 'update:check', 'update:download', 'update:install', 'sandbox:state', 'sandbox:start',
   'sandbox:reset', 'kill:trigger', 'kill:reset',
   'voice:devices', 'voice:ptt', 'voice:handsFree', 'voice:speak', 'voice:stopSpeaking',
 ];

@@ -34,6 +34,24 @@ Honest limits: the sandbox is a *separate screen*, **not a security sandbox** �
 sandbox has no accessibility tree (screenshots only), starts empty (Claude launches apps with `bash`), and you watch rather than
 click in it (yet). The model still sees discrete screenshots after each step, exactly as before.
 
+## Auto-update (v1.2)
+
+The installed app keeps itself current — no re-running `build.sh`:
+
+* It checks GitHub Releases on start-up and every 6 hours (Settings → **Updates**: on/off, background download, Stable/Beta,
+  *Check now*). A banner offers **Download** → **Restart to update**.
+* **AppImage:** the new AppImage replaces the old file in place and the app relaunches. **.deb:** the package is installed with
+  `dpkg -i` through a graphical password prompt (polkit); if that fails or is cancelled the app simply carries on.
+* Installing **always waits for you** and is refused while a task is running. Downloaded updates survive a later failed check.
+* Integrity: HTTPS + the sha512 in `latest-linux.yml`. There is no code signing on Linux, so you are trusting the GitHub repo.
+
+**Publishing a release (maintainer):** bump `version` in `package.json`, commit, then
+`git tag v1.2.1 && git push origin v1.2.1`. The *Release* workflow builds both packages and uploads them with
+`latest-linux.yml` — running apps pick it up within hours. (Locally: `ATLAS_PUBLISH=always GH_TOKEN=… ./build.sh`.)
+The repository must be **public** (or the app would need a token baked in, which this project deliberately does not do).
+Apps built from source (`npm run dev`) never self-update. `ATLAS_UPDATE_URL=<dir with latest-linux.yml>` points a build at a
+different feed (used by `scripts/e2e-update.mjs`).
+
 ## ⚠️ Read this first
 
 * **Terms of service.** The *web* bridge automates the claude.ai chat page (types into it, reads the answer). Anthropic's
@@ -80,6 +98,7 @@ ClaudeAtlasLinux/
 │   ├── auth.ts  planDetect.ts    persist:claude-pro session, cookie watcher, plan badge
 │   ├── windows.ts                main window, login WebContentsView, Mini-HUD (+ screenshot mask)
 │   ├── store.ts                  settings / chats / workflows (atomic JSON in userData)
+│   ├── updater.ts updateState.ts auto-update (electron-updater) + pure state machine
 │   ├── backend/  sidecar.ts client.ts      spawn backend-linux (chmod +x, free port, token), WS RPC client
 │   ├── bridge/   webBridge.ts page-bridge.js selectors.ts cliBridge.ts imageUtil.ts types.ts
 │   └── agent/    runner.ts parser.ts prompt.ts voiceConfirm.ts   perception→action loop
@@ -191,6 +210,7 @@ format reminders before the task fails.
 | `…/test_e2e_process.py` | sidecar as a process: READY handshake, auth, loopback-only, exits when the parent dies |
 | `electron/agent/parser.test.ts` | JSON extraction/repair, sanitising, voice-confirm parsing |
 | `scripts/test-page-bridge.mjs` | in-page bridge against a *mock* claude.ai page (attach/paste/drop, send, stream, stop) |
+| `scripts/e2e-update.mjs` | **real** AppImage + local update feed: up-to-date, available + notes, consent-gated download with progress, file actually swapped, app relaunches, old instance exits |
 | `scripts/e2e-electron.mjs` | **real** Electron + sidecar + Xvfb with a fake `claude` CLI: full task, HUD, approval deny/approve, retry, kill, persistence, API-key scrubbing |
 
 ## Troubleshooting

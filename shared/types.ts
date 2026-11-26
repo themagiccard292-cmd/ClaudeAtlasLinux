@@ -81,6 +81,35 @@ export interface VoiceSettings {
   wakeWord: string;
 }
 
+export type UpdateChannel = 'stable' | 'beta';
+
+export interface UpdateSettings {
+  /** Look for new versions on start-up and every 6 hours. */
+  check: boolean;
+  /** Download in the background (installing always waits for you). */
+  autoDownload: boolean;
+  channel: UpdateChannel;
+}
+
+export type UpdateStatus = 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'none' | 'error';
+
+export interface UpdateState {
+  status: UpdateStatus;
+  currentVersion: string;
+  /** Version on offer (available / downloading / downloaded). */
+  version?: string;
+  /** 0–100 while downloading. */
+  progress?: number;
+  bytesPerSecond?: number;
+  notes?: string;
+  error?: string;
+  checkedAt?: number;
+  /** How an update gets installed here. */
+  method?: 'appimage' | 'deb' | 'unknown';
+  /** Why updating is switched off (e.g. running from source). */
+  reason?: string;
+}
+
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
   bridgeMode: BridgeMode;
@@ -92,6 +121,7 @@ export interface Settings {
   stepDelayMs: number;
   hudType: 'dock' | 'toolbar';
   voice: VoiceSettings;
+  updates: UpdateSettings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -104,6 +134,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxSteps: 40,
   stepDelayMs: 500,
   hudType: 'dock',
+  updates: { check: true, autoDownload: true, channel: 'stable' },
   voice: {
     inputDevice: null,
     outputDevice: null,

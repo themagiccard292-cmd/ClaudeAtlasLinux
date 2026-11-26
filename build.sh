@@ -7,6 +7,7 @@
 #    ./build.sh --appimage-only | --deb-only
 #    ./build.sh --skip-backend        reuse an existing backend/dist/backend-linux
 #    ./build.sh --skip-pip            don't (re)install Python packages
+#    ATLAS_PUBLISH=always GH_TOKEN=… ./build.sh   also uploads to the GitHub Release (what auto-update reads)
 #    ./build.sh --no-piper            skip the optional offline TTS engine (smaller binary)
 #
 #  Pipeline:  Python venv → PyInstaller (backend-linux ELF) → Vite (React) + tsc (Electron main)
@@ -26,7 +27,7 @@ for arg in "$@"; do
     --skip-backend)        SKIP_BACKEND=1 ;;
     --skip-pip)            SKIP_PIP=1 ;;
     --no-piper)            WITH_PIPER=0 ;;
-    -h|--help)             sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help)             sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -88,7 +89,7 @@ npm run build
 # ── 4. package ────────────────────────────────────────────────────────────────────────────────
 say "4/4  Packaging with electron-builder (${TARGETS})"
 # shellcheck disable=SC2086
-npx electron-builder --linux $TARGETS --publish never
+npx electron-builder --linux $TARGETS --publish "${ATLAS_PUBLISH:-never}"
 
 say "Done"
 ls -lh release/*.AppImage release/*.deb 2>/dev/null | awk '{printf "   %s  %s\n", $5, $9}'

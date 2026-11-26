@@ -7,6 +7,7 @@ import type { AgentRunner } from './agent/runner';
 import type { AuthManager } from './auth';
 import type { BackendClient } from './backend/client';
 import type { Store } from './store';
+import type { UpdateManager } from './updater';
 import type { Windows } from './windows';
 
 export interface IpcContext {
@@ -14,6 +15,8 @@ export interface IpcContext {
   auth: AuthManager;
   windows: Windows;
   runner: AgentRunner;
+  updater: UpdateManager;
+  installUpdate: () => Promise<void>;
   backend: () => BackendClient | null;
   backendState: () => BackendState;
   applySettings: (s: Settings) => void;
@@ -97,6 +100,11 @@ export function registerIpc(c: IpcContext): void {
   handle('agent:pause', () => c.runner.pause('manual'));
   handle('agent:resume', () => c.runner.resume());
   handle('agent:confirm', (r) => c.runner.confirm(str(r.id, 64), r.approved === true));
+
+  handle('update:state', () => c.updater.get());
+  handle('update:check', () => c.updater.check(true));
+  handle('update:download', () => c.updater.download());
+  handle('update:install', () => c.installUpdate());
 
   const sandboxCall = async (method: string): Promise<SandboxState> => {
     const st = await backendCall<SandboxState>(method, {

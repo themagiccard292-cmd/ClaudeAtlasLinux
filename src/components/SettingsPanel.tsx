@@ -25,7 +25,7 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function SettingsPanel() {
-  const { settings, patchSettings, set, backend, auth, kill } = useUi();
+  const { settings, patchSettings, set, backend, auth, kill, update } = useUi();
   const [devices, setDevices] = useState<AudioDevices | null>(null);
   const [diag, setDiag] = useState<BridgeDiagnosis | 'running' | null>(null);
   const v = settings.voice;
@@ -136,6 +136,35 @@ export function SettingsPanel() {
           <Row label="Wake phrase" hint="Used in hands-free mode."><input defaultValue={v.wakeWord} onBlur={(e) => setVoice({ wakeWord: e.target.value })} className={`${input} w-40`} /></Row>
           <Row label="Speak replies aloud"><input type="checkbox" checked={v.speakReplies} onChange={(e) => setVoice({ speakReplies: e.target.checked })} className="h-4 w-4 accent-[rgb(var(--accent))]" /></Row>
           <Row label="Hands-free listening"><input type="checkbox" checked={v.handsFree} onChange={(e) => setVoice({ handsFree: e.target.checked })} className="h-4 w-4 accent-[rgb(var(--accent))]" /></Row>
+        </Card>
+
+        <Card title="Updates">
+          <Row label="Version" hint={update?.status === 'disabled' ? update.reason : undefined}>
+            <span className="font-mono text-sm">{update?.currentVersion ?? '—'}</span>
+          </Row>
+          <Row label="Status" hint={update?.method === 'deb' ? 'Installing a .deb update asks for your password.' : update?.method === 'appimage' ? 'The AppImage replaces itself.' : undefined}>
+            <div className="flex items-center gap-3 text-sm">
+              <span className={update?.status === 'error' ? 'text-danger' : update?.status === 'downloaded' || update?.status === 'available' ? 'text-accent' : 'text-muted'}>
+                {{ disabled: 'Off', idle: 'Not checked yet', checking: 'Checking…', none: 'Up to date', available: `Version ${update?.version} available`, downloading: `Downloading ${update?.progress ?? 0}%`, downloaded: `Version ${update?.version} ready`, error: update?.error ?? 'Error' }[update?.status ?? 'idle']}
+              </span>
+              <button disabled={!update || update.status === 'disabled' || update.status === 'checking' || update.status === 'downloading'} onClick={() => void atlas().invoke('update:check')}
+                className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-line/50 disabled:opacity-50">Check now</button>
+            </div>
+          </Row>
+          {update?.notes && (update.status === 'available' || update.status === 'downloaded') && (
+            <p className="whitespace-pre-line py-3 text-xs text-muted">{update.notes}</p>
+          )}
+          <Row label="Check for updates automatically" hint="On start-up and every 6 hours.">
+            <input type="checkbox" checked={settings.updates.check} onChange={(e) => void patchSettings({ updates: { ...settings.updates, check: e.target.checked } })} className="h-4 w-4 accent-[rgb(var(--accent))]" />
+          </Row>
+          <Row label="Download updates in the background" hint="Installing always waits for you and never interrupts a task.">
+            <input type="checkbox" checked={settings.updates.autoDownload} onChange={(e) => void patchSettings({ updates: { ...settings.updates, autoDownload: e.target.checked } })} className="h-4 w-4 accent-[rgb(var(--accent))]" />
+          </Row>
+          <Row label="Channel" hint="Beta also offers pre-releases.">
+            <select value={settings.updates.channel} onChange={(e) => void patchSettings({ updates: { ...settings.updates, channel: e.target.value as 'stable' | 'beta' } })} className={input}>
+              <option value="stable">Stable</option><option value="beta">Beta</option>
+            </select>
+          </Row>
         </Card>
 
         <Card title="System">

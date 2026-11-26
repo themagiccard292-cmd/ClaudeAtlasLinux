@@ -98,6 +98,7 @@ export function installMock(): void {
         case 'chat:create': return { ...chat, id: '22222222-2222-4222-8222-222222222222', title: 'New chat', messages: [] };
         case 'workflow:list': return [{ id: 'w1', name: 'Morning briefing', prompt: 'Open my calendar and summarise today', createdAt: 1 }, { id: 'w2', name: 'Clean Downloads', prompt: 'Sort ~/Downloads by type', createdAt: 2 }];
         case 'sandbox:state': return SANDBOX;
+        case 'update:state': return view === 'update' ? { status: 'downloaded', currentVersion: '1.2.0', version: '1.3.0', method: 'appimage', notes: 'Live view polish\nFaster sandbox start-up' } : { status: 'none', currentVersion: '1.2.0', method: 'appimage' };
         case 'agent:state': return view === 'live' ? { status: 'running', chatId: chat.id, step: 4, maxSteps: 40, label: 'Clicking: Search box' } : view === 'running' || view === 'hud' || view === 'confirm' ? { status: view === 'confirm' ? 'waiting_confirmation' : 'running', chatId: chat.id, step: 3, maxSteps: 40, label: 'Clicking: Files launcher' } : { status: 'idle', step: 0, maxSteps: 40 };
         case 'voice:devices': return { input: [{ index: 0, name: 'Built-in Microphone', hostapi: 'ALSA', sample_rate: 48000 }, { index: 3, name: 'USB Headset', hostapi: 'ALSA', sample_rate: 48000 }], output: [{ index: 1, name: 'Built-in Speakers', hostapi: 'ALSA', sample_rate: 48000 }], default_input: 0, default_output: 1 };
         case 'bridge:diagnose': return { ok: true, url: 'https://claude.ai/new', signedIn: true, checks: { editor: 1, sendButton: 1 }, notes: [] };

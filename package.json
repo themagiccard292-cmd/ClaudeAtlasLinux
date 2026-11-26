@@ -1,7 +1,7 @@
 {
   "name": "claude-os-agent",
   "productName": "Claude OS Agent",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Autonomous Linux desktop agent with a Claude-style UI, powered by your Claude Pro subscription (no API key).",
   "author": {
     "name": "Claude OS Agent contributors",
@@ -26,6 +26,7 @@
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "ws": "^8.18.0"
   },
   "devDependencies": {
@@ -116,7 +117,15 @@
         "espeak-ng",
         "pipewire-pulse | pulseaudio"
       ]
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "themagiccard292-cmd",
+        "repo": "ClaudeAtlasLinux",
+        "releaseType": "release"
+      }
+    ]
   },
   "desktopName": "claude-os-agent.desktop"
 }

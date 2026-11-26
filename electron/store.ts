@@ -26,6 +26,7 @@ export function mergeSettings(stored: Partial<Settings> | undefined, patch: Part
     ...stored,
     ...patch,
     voice: { ...DEFAULT_SETTINGS.voice, ...stored?.voice, ...patch.voice },
+    updates: { ...DEFAULT_SETTINGS.updates, ...stored?.updates, ...patch.updates },
   };
 }
 

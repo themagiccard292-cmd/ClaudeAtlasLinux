@@ -1,0 +1,41 @@
+name: Release
+
+# Publishing a release is what makes installed apps auto-update:
+#   1. bump "version" in package.json (e.g. 1.2.1) and commit
+#   2. git tag v1.2.1 && git push origin v1.2.1
+# This job builds the AppImage + deb and uploads them with latest-linux.yml to a GitHub Release,
+# which is the feed electron-updater reads.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match package.json version
+        run: |
+          pkg="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"; exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 fakeroot dpkg xdotool xvfb
+
+      - name: Build and publish
+        env:
+          ATLAS_PUBLISH: always
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./build.sh
+
+      - name: Show what was published
+        run: ls -lh release/*.AppImage release/*.deb release/latest-linux.yml

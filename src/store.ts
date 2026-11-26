@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AtlasEvent } from '../shared/ipc';
 import {
-  type AgentState, type AppInfo, type SandboxState, type AuthState, type BackendState, type Chat, type ChatSummary, type ConfirmRequest,
+  type AgentState, type AppInfo, type SandboxState, type UpdateState, type AuthState, type BackendState, type Chat, type ChatSummary, type ConfirmRequest,
   DEFAULT_SETTINGS, type Settings, type VoiceUiState, type Workflow,
 } from '../shared/types';
 import { atlas, isHudRoute } from './lib/atlas';
@@ -35,6 +35,7 @@ interface UiState {
   loginRequested: boolean;
   liveOpen: boolean;
   sandbox: SandboxState | null;
+  update: UpdateState | null;
 
   init(): Promise<void>;
   handleEvent(e: AtlasEvent): void;
@@ -69,6 +70,7 @@ export const useUi = create<UiState>((set, get) => ({
   loginRequested: false,
   liveOpen: false,
   sandbox: null,
+  update: null,
 
   set: (p) => set(p),
 
@@ -82,7 +84,8 @@ export const useUi = create<UiState>((set, get) => ({
     if (isHudRoute()) return; // the HUD only needs live state
     const [chats, workflows] = await Promise.all([a.invoke('chat:list'), a.invoke('workflow:list')]);
     const sandbox = await a.invoke('sandbox:state').catch(() => null);
-    set({ chats, workflows, sandbox });
+    const update = await a.invoke('update:state').catch(() => null);
+    set({ chats, workflows, sandbox, update });
     if (chats.length) await get().selectChat(chats[0].id);
   },
 
@@ -99,6 +102,7 @@ export const useUi = create<UiState>((set, get) => ({
       case 'live:frame': liveBus.emitFrame(e); break;
       case 'live:fx': liveBus.emitFx(e); break;
       case 'sandbox': set({ sandbox: e.state }); break;
+      case 'update': set({ update: e.state }); break;
       case 'chat:list': set({ chats: e.chats }); break;
       case 'chat:title': set({ chats: get().chats.map((c) => (c.id === e.chatId ? { ...c, title: e.title } : c)) }); break;
       case 'chat:message': {

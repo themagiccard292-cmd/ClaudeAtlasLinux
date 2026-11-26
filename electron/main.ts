@@ -11,6 +11,7 @@ import type { ClaudeBridge } from './bridge/types';
 import { WebBridge } from './bridge/webBridge';
 import { registerIpc } from './ipc';
 import { Store } from './store';
+import { UpdateManager } from './updater';
 import { Windows } from './windows';
 
 // ------------------------------------------------------------ process-level flags
@@ -47,6 +48,7 @@ let store: Store;
 let auth: AuthManager;
 let windows: Windows;
 let runner: AgentRunner;
+let updater: UpdateManager;
 let sidecar: Sidecar | null = null;
 let client: BackendClient | null = null;
 let backendState: BackendState = { status: 'starting' };
@@ -97,6 +99,7 @@ function applySettings(s: Settings): void {
     bridge = null;
   }
   void client?.call('voice.configure', voiceConfig(s.voice)).catch((e) => log(`voice.configure failed: ${e}`));
+  updater?.applySettings(s);
   windows.broadcast({ type: 'settings', settings: s });
 }
 
@@ -181,6 +184,25 @@ async function startBackend(): Promise<void> {
   }
 }
 
+/** Restart-to-update. Stops everything first so the relaunched copy can take the single-instance lock. */
+async function installUpdate(): Promise<void> {
+  if (runner.isRunning()) throw new Error('A task is running. Stop it or wait for it to finish, then restart to update.');
+  if (updater.get().status !== 'downloaded') throw new Error('No downloaded update to install.');
+  quitting = true; // before-quit must not intercept
+  store.flush();
+  bridge?.dispose();
+  await shutdownBackend();
+  app.releaseSingleInstanceLock();
+  const state = updater.quitAndInstall();
+  if (state.status === 'error') {
+    // install failed (e.g. password prompt cancelled): carry on as if nothing happened
+    quitting = false;
+    app.requestSingleInstanceLock();
+    void startBackend();
+    throw new Error(state.error ?? 'The update could not be installed.');
+  }
+}
+
 async function shutdownBackend(): Promise<void> {
   const sc = sidecar;
   sidecar = null;
@@ -234,8 +256,10 @@ app.whenReady().then(async () => {
     log,
   });
 
+  updater = new UpdateManager({ settings: () => store.settings, emit: (e) => windows.broadcast(e), log });
+
   registerIpc({
-    store, auth, windows, runner,
+    store, auth, windows, runner, updater, installUpdate,
     backend: () => client,
     backendState: () => backendState,
     applySettings,
@@ -257,6 +281,7 @@ app.whenReady().then(async () => {
   });
 
   windows.createMain();
+  updater.start();
   void auth.refresh();
   void startBackend();
 });
