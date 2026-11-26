@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Claude-style warm palette: alabaster/cream (light) and warm charcoal (dark). Channels are space
+   separated so Tailwind can apply alpha (bg-bg/80). */
+:root {
+  --bg: 245 244 239;      /* #F5F4EF */
+  --surface: 250 249 245; /* sidebar / cards */
+  --raised: 255 255 255;  /* inputs, bubbles */
+  --ink: 31 30 29;
+  --muted: 115 114 108;
+  --line: 227 225 216;
+  --accent: 201 100 66;   /* terracotta */
+  --accent-ink: 255 255 255;
+  --ok: 74 124 89;
+  --warn: 176 122 30;
+  --danger: 187 62 56;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 38 38 36;         /* #262624 */
+  --surface: 31 30 29;
+  --raised: 48 48 46;
+  --ink: 240 238 230;
+  --muted: 163 162 153;
+  --line: 62 62 58;
+  --accent: 217 119 87;
+  --accent-ink: 31 30 29;
+  --ok: 120 178 138;
+  --warn: 224 170 80;
+  --danger: 232 120 112;
+  color-scheme: dark;
+}
+
+html, body, #root { height: 100%; }
+body {
+  @apply bg-bg font-sans text-ink antialiased;
+  margin: 0;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body.hud, body.hud #root { background: transparent; }
+
+::selection { background: rgb(var(--accent) / 0.28); }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--line)) transparent; }
+button { font: inherit; }
+.drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+
+/* markdown */
+.prose-atlas { @apply text-[15px] leading-relaxed; }
+.prose-atlas > * + * { @apply mt-3; }
+.prose-atlas h1, .prose-atlas h2, .prose-atlas h3 { @apply font-serif font-medium tracking-tight; }
+.prose-atlas h1 { @apply text-xl; }
+.prose-atlas h2 { @apply text-lg; }
+.prose-atlas h3 { @apply text-base; }
+.prose-atlas ul { @apply list-disc pl-5; }
+.prose-atlas ol { @apply list-decimal pl-5; }
+.prose-atlas li + li { @apply mt-1; }
+.prose-atlas a { @apply text-accent underline underline-offset-2; }
+.prose-atlas code:not(pre code) { @apply rounded bg-line/60 px-1.5 py-0.5 font-mono text-[13px]; }
+.prose-atlas table { @apply w-full border-collapse text-sm; }
+.prose-atlas th, .prose-atlas td { @apply border border-line px-2 py-1 text-left; }
+.prose-atlas blockquote { @apply border-l-2 border-line pl-3 text-muted; }
+
+.kbd { @apply rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[11px] text-muted; }

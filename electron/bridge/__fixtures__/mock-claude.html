@@ -1,0 +1,115 @@
+<!doctype html>
+<!-- Minimal imitation of the claude.ai chat page, used ONLY to unit-test page-bridge.js.
+     It mirrors the structural features the bridge relies on; it is not the real site. -->
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { font-family: sans-serif; }
+  [contenteditable] { border: 1px solid #999; min-height: 40px; padding: 6px; }
+  .font-claude-response { margin: 8px 0; }
+  pre { background: #eee; padding: 6px; }
+</style>
+</head>
+<body>
+<div id="thread"></div>
+<fieldset>
+  <div id="attachments"></div>
+  <div contenteditable="true" class="ProseMirror" id="editor" role="textbox"></div>
+  <button aria-label="Send message" id="send" disabled>Send</button>
+  <button aria-label="Stop response" id="stop" style="display:none">Stop</button>
+</fieldset>
+<script>
+  const params = new URLSearchParams(location.search);
+  const editor = document.getElementById('editor');
+  const send = document.getElementById('send');
+  const stop = document.getElementById('stop');
+  const thread = document.getElementById('thread');
+  const attachments = document.getElementById('attachments');
+  window.__sent = [];            // what the "server" received
+  window.__replyMode = params.get('reply') || 'json';
+
+  function refresh() { send.disabled = !(editor.innerText.trim().length || attachments.children.length); }
+  editor.addEventListener('input', refresh);
+
+  function addAttachment(file) {
+    const slot = document.createElement('div');
+    slot.setAttribute('data-testid', 'file-thumbnail');
+    slot.dataset.uploading = 'true';
+    attachments.appendChild(slot);
+    setTimeout(() => {                         // simulate async upload
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      slot.appendChild(img);
+      slot.dataset.uploading = 'false';
+      slot.dataset.name = file.name; slot.dataset.size = file.size;
+      refresh();
+    }, 350);
+  }
+
+  if (!params.has('noinput')) {
+    const input = document.createElement('input');
+    input.type = 'file'; input.hidden = true; input.setAttribute('data-testid', 'file-upload');
+    input.addEventListener('change', () => { for (const f of input.files) addAttachment(f); });
+    document.body.appendChild(input);
+  }
+
+  // ProseMirror-like paste handling: files become attachments, text is inserted at the caret.
+  editor.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const files = e.clipboardData && e.clipboardData.files;
+    if (files && files.length) { for (const f of files) addAttachment(f); return; }
+    const text = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (text && !params.has('nopaste')) {
+      text.split('\n').forEach((line, i) => {
+        if (i) document.execCommand('insertParagraph');
+        if (line) document.execCommand('insertText', false, line);
+      });
+    }
+  });
+
+  editor.addEventListener('drop', (e) => { e.preventDefault(); for (const f of e.dataTransfer.files) addAttachment(f); });
+  editor.addEventListener('dragover', (e) => e.preventDefault());
+
+  const replies = {
+    json: '{"thought":"Open the menu","actions":[{"action":"click","x":120,"y":44,"target":"Menu"},{"action":"type","text":"a*b*c {x}"}],"done":false,"message":"Opening the menu"}',
+  };
+
+  send.addEventListener('click', () => {
+    const text = editor.innerText;
+    const names = Array.from(attachments.children).map((a) => ({ name: a.dataset.name, size: +a.dataset.size }));
+    window.__sent.push({ text, attachments: names });
+    editor.innerHTML = ''; attachments.innerHTML = ''; refresh();
+
+    const user = document.createElement('div');
+    user.setAttribute('data-testid', 'user-message'); user.textContent = text; thread.appendChild(user);
+
+    const turn = document.createElement('div');
+    turn.setAttribute('data-is-streaming', 'true');
+    const body = document.createElement('div');
+    body.className = 'font-claude-response';
+    turn.appendChild(body); thread.appendChild(turn);
+    stop.style.display = 'inline-block';
+
+    const payload = replies.json;
+    const intro = 'Sure — here is the plan.\n';
+    let i = 0;
+    const timer = setInterval(() => {
+      i += 12;
+      const shown = payload.slice(0, i);
+      body.innerHTML = '';
+      const p = document.createElement('p'); p.textContent = intro; body.appendChild(p);
+      if (window.__replyMode === 'json') {
+        const pre = document.createElement('pre'); const code = document.createElement('code');
+        code.textContent = shown; pre.appendChild(code); body.appendChild(pre);
+      }
+      if (i >= payload.length + 24) {
+        clearInterval(timer);
+        turn.setAttribute('data-is-streaming', 'false'); stop.style.display = 'none';
+      }
+    }, 60);
+    stop.onclick = () => { clearInterval(timer); turn.setAttribute('data-is-streaming', 'false'); stop.style.display = 'none'; window.__stopped = true; };
+  });
+</script>
+</body>
+</html>
