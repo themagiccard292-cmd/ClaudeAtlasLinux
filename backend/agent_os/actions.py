@@ -21,7 +21,7 @@ from .shell import ShellTool
 
 ACTION_TYPES = {
     "click", "double_click", "right_click", "middle_click", "move", "drag", "scroll", "type",
-    "hotkey", "key", "bash", "wait", "screenshot", "atspi_windows", "atspi_tree", "atspi_find", "atspi_click",
+    "hotkey", "key", "bash", "wait", "screenshot", "look", "click_text", "find_text", "atspi_windows", "atspi_tree", "atspi_find", "atspi_click",
 }
 _POINT_KEYS = ("coordinate", "coordinates", "position", "point", "at")
 _END_KEYS = ("to", "end", "end_coordinate", "target_coordinate")
@@ -121,6 +121,15 @@ def normalize_action(raw: dict) -> dict:
         out.update(name=str(name) if name else None, role=str(role) if role else None,
                    index=max(0, _num(raw.get("index", 0), "index")))
         out["scope"] = str(raw.get("scope", "all"))
+    elif kind in {"click_text", "find_text"}:
+        text = raw.get("text") or raw.get("name") or raw.get("label")
+        if not isinstance(text, str) or not text.strip():
+            raise ActionError(f"'{kind}' needs 'text' (the words to find on screen)")
+        out["text"] = text.strip()[:120]
+        out["index"] = max(0, _num(raw.get("index", 0), "index"))
+        if kind == "click_text":
+            out["button"] = str(raw.get("button", "left")).lower()
+            out["target"] = out.get("target") or out["text"]
     elif kind == "atspi_tree":
         out["scope"] = str(raw.get("scope", "active"))
         out["max_nodes"] = max(10, min(_num(raw.get("max_nodes", 200), "max_nodes"), 600))
@@ -241,8 +250,8 @@ class ActionExecutor:
         elif kind == "wait":
             self.ks.sleep(a["seconds"])
             res["message"] = f"waited {a['seconds']}s"
-        elif kind == "screenshot":
-            res["message"] = "fresh screenshot will be attached"
+        elif kind in ("screenshot", "look"):
+            res["message"] = "a full frame will be attached to the next observation"
         elif kind == "atspi_windows":
             wins = self.atspi.windows()
             res.update(output={"windows": wins},

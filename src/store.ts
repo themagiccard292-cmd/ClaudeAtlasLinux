@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AtlasEvent } from '../shared/ipc';
 import {
-  type AgentState, type AppInfo, type SandboxState, type UpdateState, type AuthState, type BackendState, type Chat, type ChatSummary, type ConfirmRequest,
+  type AgentState, type AppInfo, type ImageKind, type PerceptionMeta, type SandboxState, type UpdateState, type AuthState, type BackendState, type Chat, type ChatSummary, type ConfirmRequest,
   DEFAULT_SETTINGS, type Settings, type VoiceUiState, type Workflow,
 } from '../shared/types';
 import { atlas, isHudRoute } from './lib/atlas';
@@ -36,6 +36,7 @@ interface UiState {
   liveOpen: boolean;
   sandbox: SandboxState | null;
   update: UpdateState | null;
+  perception: { text: string; imageKind: ImageKind; meta: PerceptionMeta; ts: number } | null;
 
   init(): Promise<void>;
   handleEvent(e: AtlasEvent): void;
@@ -71,6 +72,7 @@ export const useUi = create<UiState>((set, get) => ({
   liveOpen: false,
   sandbox: null,
   update: null,
+  perception: null,
 
   set: (p) => set(p),
 
@@ -103,6 +105,7 @@ export const useUi = create<UiState>((set, get) => ({
       case 'live:fx': liveBus.emitFx(e); break;
       case 'sandbox': set({ sandbox: e.state }); break;
       case 'update': set({ update: e.state }); break;
+      case 'perception': set({ perception: { text: e.text, imageKind: e.imageKind, meta: e.meta, ts: e.ts } }); break;
       case 'chat:list': set({ chats: e.chats }); break;
       case 'chat:title': set({ chats: get().chats.map((c) => (c.id === e.chatId ? { ...c, title: e.title } : c)) }); break;
       case 'chat:message': {

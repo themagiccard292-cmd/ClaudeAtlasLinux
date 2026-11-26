@@ -34,6 +34,27 @@ Honest limits: the sandbox is a *separate screen*, **not a security sandbox** �
 sandbox has no accessibility tree (screenshots only), starts empty (Claude launches apps with `bash`), and you watch rather than
 click in it (yet). The model still sees discrete screenshots after each step, exactly as before.
 
+## How Claude sees the screen (v1.3)
+
+**Claude cannot take video**, and through a claude.ai chat or the `claude` CLI it can only be given text and still images. Instead of
+screenshots as the default, v1.3 runs a *perception engine* that watches the screen continuously (~5 Hz) and hands Claude text:
+
+| Channel | What Claude gets |
+|---|---|
+| **Windows** | titles, sizes, positions, which one is active |
+| **UI elements** | buttons / fields with click points, from the accessibility tree (AT-SPI; also inside the sandbox) |
+| **Text on screen** | every line of visible text with its position, read by offline OCR (tesseract) |
+| **What changed** | a timeline of what happened *while Claude was acting*: windows opened/closed, text appeared/disappeared, the screen was changing for 1.1 s then settled |
+| **Settling** | after each action it waits until the screen stops changing, instead of fixed sleeps |
+| **Motion strip** | only when something was moving: a timestamped contact sheet of the last few frames |
+| **One frame** | only when the screen has visual content text can't describe (photo, video, canvas), or when Claude asks with `look` |
+
+Claude can click by *reading*: `click_text {"text":"Edit"}` finds that word on screen and clicks it. **Settings → Agent → How Claude sees the
+screen** switches between *Auto* (default), *Text only* (never any image) and *Always send a frame*. The live-view panel shows
+**What Claude sees** — the exact text it received each step and whether any image was attached. Honest limits: Claude still
+reasons in discrete turns (this makes those turns continuous-aware, not video); OCR can misread small or stylised text; graphics-only
+UIs fall back to a frame; needs `tesseract-ocr` (the `.deb` installs it).
+
 ## Auto-update (v1.2)
 
 The installed app keeps itself current — no re-running `build.sh`:
@@ -204,7 +225,7 @@ format reminders before the task fails.
 
 | Suite | What it proves |
 |---|---|
-| `backend/tests` (175, incl. real sandbox + live stream) | safety rules, key tables, kill switch, coordinate mapping, VAD, wake word, AT-SPI tree logic, WebSocket protocol |
+| `backend/tests` (188, incl. real sandbox, live stream, OCR, accessibility, click-from-text) | safety rules, key tables, kill switch, coordinate mapping, VAD, wake word, AT-SPI tree logic, WebSocket protocol |
 | `…/test_e2e_x11.py` | **real** Xvfb: capture, xdotool clicks/typing into a real xterm, Esc-Esc kill via real key events, Alt+Space |
 | `…/test_e2e_atspi.py` | **real** GTK3 app on a private AT-SPI bus: read tree, read entry text, click a button via AT-SPI |
 | `…/test_e2e_process.py` | sidecar as a process: READY handshake, auth, loopback-only, exits when the parent dies |

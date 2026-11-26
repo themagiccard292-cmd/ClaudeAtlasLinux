@@ -44,6 +44,9 @@ class RpcService:
             "atspi.windows": lambda p: {"windows": ctx.atspi.windows()},
             "atspi.tree": lambda p: ctx.atspi.tree(ctx.capturer.last, p.get("scope", "active"), int(p.get("max_nodes", 200))),
             "atspi.find": lambda p: ctx.atspi.find(ctx.capturer.last, p.get("name"), p.get("role"), p.get("scope", "all")),
+            "perception.observe": self.perception_observe,
+            "perception.settle": lambda p: self._perceiver(p).wait_settled(float(p.get("timeout", 4)), float(p.get("quiet", 0.45))),
+            "perception.status": lambda p: self._perceiver(p).status(),
             "kill.status": lambda p: ctx.ks.status(),
             "kill.trigger": self.kill_trigger,
             "kill.reset": self.kill_reset,
@@ -83,6 +86,21 @@ class RpcService:
             raise RpcError("no_target", f"The {name} desktop is not running")
         return tgt
 
+    def _perceiver(self, p: dict):
+        per = self.ctx.perceiver(str(p.get("target", "real")))
+        if per is None:
+            raise RpcError("no_target", f"The {p.get('target', 'real')} desktop is not running")
+        return per
+
+    def perception_observe(self, p: dict) -> dict:
+        obs = self._perceiver(p).observe(
+            vision=str(p.get("vision", "auto")), force_image=bool(p.get("force_image", False)),
+            settle=bool(p.get("settle", True)), settle_timeout=float(p.get("settle_timeout", 4.0)),
+            elements=bool(p.get("elements", True)), mask=p.get("mask"))
+        b64 = lambda b: base64.b64encode(b).decode("ascii") if b else None  # noqa: E731
+        return {"text": obs.text, "image_b64": b64(obs.image), "image_kind": obs.image_kind, "thumb_b64": b64(obs.thumb),
+                "width": obs.width, "height": obs.height, "changed": obs.changed, "meta": obs.meta}
+
     def screen_capture(self, p: dict) -> dict:
         shot = self._target(p).capturer.capture(
             max_width=int(p.get("max_width", 1280)), max_height=int(p.get("max_height", 720)),
@@ -90,7 +108,35 @@ class RpcService:
         return {"image_b64": base64.b64encode(shot.jpeg).decode("ascii"), **shot.meta()}
 
     def action_execute(self, p: dict) -> dict:
-        return self._target(p).executor.execute(p["action"], approved=bool(p.get("approved", False)))
+        tgt = self._target(p)
+        approved = bool(p.get("approved", False))
+        raw = p["action"]
+        kind = str(raw.get("action") or raw.get("type") or "") if isinstance(raw, dict) else ""
+        if kind in ("click_text", "find_text"):
+            from .actions import normalize_action
+            from .errors import ActionError
+
+            try:
+                act = normalize_action(raw)
+            except ActionError as exc:
+                return {"ok": False, "error": str(exc), "code": exc.code}
+            per = self._perceiver(p)
+            hits = per.locate_text(act["text"], act["index"])
+            if not hits:
+                return {"ok": False, "code": "not_found", "action": act,
+                        "error": f"The text “{act['text']}” was not found on screen. Check the [text on screen] list or use `look`."}
+            hit = hits[0]
+            if kind == "find_text":
+                msg = "; ".join(f"“{h['text']}” @({h['cx']},{h['cy']}) {h['w']}x{h['h']}" for h in hits[:6])
+                return {"ok": True, "type": "find_text", "action": act, "message": msg, "matches": hits[:6]}
+            click = {"action": "click", "x": hit["cx"], "y": hit["cy"], "button": act.get("button", "left"), "target": act["target"]}
+            if raw.get("requires_confirmation"):
+                click["requires_confirmation"], click["reason"] = True, raw.get("reason")
+            res = tgt.executor.execute(click, approved=approved)
+            if res.get("ok"):
+                res["message"] = f"clicked the text “{hit['text']}” at ({hit['cx']},{hit['cy']})"
+            return res
+        return tgt.executor.execute(raw, approved=approved)
 
     def kill_trigger(self, p: dict) -> dict:
         self.ctx.ks.trigger(str(p.get("source", "ui")))

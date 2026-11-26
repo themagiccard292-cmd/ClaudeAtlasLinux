@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { atlas } from '../lib/atlas';
 import { liveBus } from '../lib/liveBus';
 import { useUi } from '../store';
-import { IconBolt, IconRefresh, IconX } from './Icons';
+import { IconBolt, IconChevron, IconRefresh, IconX } from './Icons';
 
 interface Ripple {
   id: number;
@@ -32,7 +32,8 @@ function AgentCursor({ label, busy, labelRef }: { label: string; busy: boolean; 
  * and chips for typing / shortcuts — so you can watch Claude work, not read about it afterwards.
  */
 export function LiveView() {
-  const { sandbox, agent, set, settings } = useUi();
+  const { sandbox, agent, set, settings, perception } = useUi();
+  const [seeOpen, setSeeOpen] = useState(true);
   const canvas = useRef<HTMLCanvasElement>(null);
   const cursor = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
@@ -172,6 +173,19 @@ export function LiveView() {
             </div>
           )}
         </div>
+        {perception && (
+          <section aria-label="What Claude sees" className="w-full rounded-xl border border-line bg-raised/60">
+            <button onClick={() => setSeeOpen(!seeOpen)} aria-expanded={seeOpen} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs">
+              <span className="font-medium">What Claude sees</span>
+              <span className={`rounded-full px-2 py-0.5 font-medium ${perception.imageKind === 'none' ? 'bg-ok/15 text-ok' : 'bg-accent/15 text-accent'}`}>
+                {perception.imageKind === 'none' ? 'text only · no image' : perception.imageKind === 'strip' ? 'text + motion strip' : 'text + 1 frame'}
+              </span>
+              <span className="ml-auto text-muted">{perception.meta.ocr_lines ?? 0} text lines · {perception.meta.elements ?? 0} controls · {perception.meta.windows ?? 0} windows</span>
+              <IconChevron size={13} className={`text-muted transition-transform ${seeOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {seeOpen && <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words border-t border-line px-3 py-2 font-mono text-[11px] leading-relaxed text-muted">{perception.text}</pre>}
+          </section>
+        )}
         <p className="max-w-md text-center text-xs text-muted">
           {settings.desktopMode === 'sandbox'
             ? 'You are watching a private virtual desktop. Press Esc twice or Stop at any time.'

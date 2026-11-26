@@ -47,6 +47,21 @@ export interface AuthState {
 export type BridgeMode = 'web' | 'cli';
 /** `sandbox`: Claude works on a private virtual desktop you watch live. `real`: it drives your own screen. */
 export type DesktopMode = 'sandbox' | 'real';
+/** How Claude perceives the screen. auto: text first, motion strip when things move, a frame only when text cannot describe it. */
+export type VisionMode = 'auto' | 'text' | 'frames';
+export type ImageKind = 'none' | 'frame' | 'strip';
+
+export interface PerceptionMeta {
+  ocr_lines?: number;
+  elements?: number;
+  windows?: number;
+  events?: number;
+  motion?: boolean;
+  unexplained?: number;
+  ocr?: boolean;
+  atspi?: boolean;
+  ms?: number;
+}
 
 export interface SandboxState {
   running: boolean;
@@ -56,6 +71,7 @@ export interface SandboxState {
   available: boolean;
   reason: string | null;
   window_manager?: string | null;
+  accessibility?: boolean;
 }
 
 /** Visual effect hint for the live view; x/y are 0..1 within the screen. */
@@ -114,6 +130,7 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark';
   bridgeMode: BridgeMode;
   desktopMode: DesktopMode;
+  visionMode: VisionMode;
   sandboxWidth: number;
   sandboxHeight: number;
   cliPath: string;
@@ -128,6 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   bridgeMode: 'web',
   desktopMode: 'sandbox',
+  visionMode: 'auto',
   sandboxWidth: 1280,
   sandboxHeight: 720,
   cliPath: 'claude',
@@ -151,7 +169,7 @@ export const DEFAULT_SETTINGS: Settings = {
 // -------------------------------------------------------------------- agent
 export type ActionType =
   | 'click' | 'double_click' | 'right_click' | 'middle_click' | 'move' | 'drag' | 'scroll'
-  | 'type' | 'hotkey' | 'bash' | 'wait' | 'screenshot'
+  | 'type' | 'hotkey' | 'bash' | 'wait' | 'screenshot' | 'look' | 'click_text' | 'find_text'
   | 'atspi_windows' | 'atspi_tree' | 'atspi_find' | 'atspi_click';
 
 /** A validated, sanitised action (never contains approval fields). */
@@ -209,6 +227,8 @@ export interface StepRecord {
   shotHeight?: number;
   actions: ActionRecord[];
   changed?: boolean | null;
+  /** What Claude actually received for this step. */
+  vision?: { kind: ImageKind; text: boolean; meta?: PerceptionMeta };
 }
 
 export interface ChatMessage {

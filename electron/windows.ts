@@ -72,9 +72,13 @@ export class Windows {
     this.secure(win);
     // `ready-to-show` never fires on some GPU/driver setups, which left an invisible window that the
     // dock could not raise. Show on whichever comes first: ready-to-show, load finished, or 4 s.
+    let revealed = false; // the fallback must act ONCE: a later hide() (HUD mode) is deliberate, not a missed show
     const reveal = () => {
-      if (!win.isDestroyed() && !win.isVisible()) win.show();
+      if (revealed || win.isDestroyed()) return;
+      revealed = true;
+      if (!win.isVisible()) win.show();
     };
+    win.once('show', () => { revealed = true; });
     win.once('ready-to-show', reveal);
     win.webContents.once('did-finish-load', reveal);
     setTimeout(reveal, 4000);

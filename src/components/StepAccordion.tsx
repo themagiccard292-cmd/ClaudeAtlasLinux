@@ -119,6 +119,14 @@ export function StepAccordion({ step, message, live }: { step: StepRecord; messa
       {open && (
         <div className="space-y-3 border-t border-line px-3.5 py-3">
           {step.thought && <p className="text-sm italic text-muted">“{step.thought}”</p>}
+          {step.vision && (
+            <p className="text-xs text-muted">
+              Claude received: <span className={step.vision.kind === 'none' ? 'font-medium text-ok' : 'font-medium text-accent'}>
+                {step.vision.kind === 'none' ? 'text only (no image)' : step.vision.kind === 'strip' ? 'text + motion strip' : 'text + one frame'}</span>
+              {step.vision.meta && <> · {step.vision.meta.ocr_lines ?? 0} text lines, {step.vision.meta.elements ?? 0} controls</>}
+              <span className="ml-1 opacity-70">(the preview below is for you)</span>
+            </p>
+          )}
           <Screenshot step={step} />
           {step.changed === false && <p className="text-xs text-warn">The screen did not change after the previous step.</p>}
           <ul className="space-y-2">{step.actions.map((a, i) => <ActionRow key={a.id} rec={a} index={i} />)}</ul>

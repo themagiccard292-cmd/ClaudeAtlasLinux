@@ -109,6 +109,21 @@ describe('sanitizeAction (security boundary)', () => {
   });
 });
 
+describe('text-addressed actions', () => {
+  it('click_text / find_text / look are accepted and sanitised', () => {
+    expect(sanitizeAction({ action: 'click_text', text: 'Edit', approved: true })).toEqual({ action: 'click_text', text: 'Edit', index: 0, button: 'left', target: 'Edit' });
+    expect(sanitizeAction({ action: 'find_text', text: 'Save', index: 2 })).toEqual({ action: 'find_text', text: 'Save', index: 2 });
+    expect(sanitizeAction({ action: 'look' })).toEqual({ action: 'look' });
+  });
+  it('require the words', () => {
+    expect(() => sanitizeAction({ action: 'click_text' })).toThrow(ParseError);
+    expect(() => sanitizeAction({ action: 'click_text', text: 'x', button: 'laser' })).toThrow(ParseError);
+  });
+  it('keeps the model-supplied confirmation flag on click_text (e.g. a Send button)', () => {
+    expect(sanitizeAction({ action: 'click_text', text: 'Send', requires_confirmation: true, reason: 'sends mail' })).toMatchObject({ requires_confirmation: true, reason: 'sends mail' });
+  });
+});
+
 describe('parseVoiceConfirmation', () => {
   it.each([
     ['yes', 'approve'], ['Yes, go ahead.', 'approve'], ['okay do it', 'approve'], ['approve', 'approve'],

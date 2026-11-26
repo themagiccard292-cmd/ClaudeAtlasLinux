@@ -14,7 +14,7 @@ jobs:
       - name: System packages (X11 e2e + AT-SPI)
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xdotool x11-xserver-utils xterm libportaudio2 espeak-ng \
+          sudo apt-get install -y xvfb xdotool x11-xserver-utils xterm libportaudio2 espeak-ng tesseract-ocr tesseract-ocr-eng imagemagick dbus \
             python3-gi gir1.2-atspi-2.0 gir1.2-gtk-3.0 at-spi2-core dbus-x11
       - run: pip install -r backend/requirements-dev.txt
       - run: python -m pytest backend/tests -q

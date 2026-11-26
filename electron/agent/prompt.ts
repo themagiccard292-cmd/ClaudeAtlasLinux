@@ -1,4 +1,4 @@
-import type { ActionRecord } from '../../shared/types';
+import type { ActionRecord, ImageKind, VisionMode } from '../../shared/types';
 
 export interface PromptEnv {
   session: string; // x11 | wayland
@@ -8,6 +8,7 @@ export interface PromptEnv {
   tools: string[];
   /** Working on the private sandbox desktop (not the user's real screen). */
   sandbox?: { apps: string[] };
+  vision: VisionMode;
 }
 
 const SCHEMA = `{
@@ -28,11 +29,13 @@ const ACTIONS = `Actions (all coordinates are pixels of the screenshot: x→righ
   {"action":"hotkey","keys":["ctrl","l"]}                                (also: super, alt, shift, enter, esc, tab, f1-f12 ...)
   {"action":"bash","command":"...","timeout":60}                         (runs in /bin/bash; stdout/stderr are returned)
   {"action":"wait","seconds":2}
-  {"action":"screenshot"}                                                (just look again)
+  {"action":"click_text","text":"Edit"}                                   (click words you can READ in [text on screen]; preferred over guessing coordinates)
+  {"action":"find_text","text":"Save"}                                    (where on screen is this text?)
+  {"action":"look"}                                                      (ask for one full frame with the next update; use sparingly)
   {"action":"atspi_windows"}  {"action":"atspi_tree","scope":"active"}  {"action":"atspi_find","name":"Save","role":"push button"}
   {"action":"atspi_click","name":"Save","role":"push button"}            (accessibility API: precise, no coordinates needed)`;
 
-export function buildInitialPrompt(goal: string, env: PromptEnv): string {
+export function buildInitialPrompt(goal: string, env: PromptEnv, screenText: string): string {
   return `You are the planning engine of "Claude OS Agent", a desktop-automation app the user installed on their own Linux computer. The user is asking the app to do the task below. The app captures their screen, shows it to you, and then executes the JSON actions you return (mouse, keyboard, shell). After each turn it sends you a fresh screenshot so you can verify what happened. This is a normal feature of the app; everything you do is visible to and stoppable by the user.
 
 OUTPUT FORMAT — reply with exactly ONE fenced \`\`\`json block and nothing else (no prose before or after, no artifacts, no tools):
@@ -44,7 +47,8 @@ Set "done": true when the task is complete or cannot be completed, and put the f
 ${ACTIONS}
 
 Rules:
-- Screenshots are ${env.screen.width}×${env.screen.height}. A red ring marks the mouse pointer.${env.sandbox ? `
+- HOW YOU SEE THE SCREEN (be accurate about this if the user asks): you do NOT receive a video stream and, normally, no screenshots. The app watches the screen continuously and before each turn gives you (1) a TEXT description: [windows], [ui elements] with click points, [text on screen] read by OCR with positions, and [what changed since your last step], a timeline of what happened while you were acting; and (2) an IMAGE only when needed: a timestamped "motion strip" of recent frames when something was moving, or a single frame when the screen has visual content that text cannot describe, or when you ask with {"action":"look"}. ${env.vision === 'text' ? 'In this session images are never sent: rely on the text.' : env.vision === 'frames' ? 'In this session a frame (or motion strip) is attached every turn.' : ''}
+- Coordinates are in a ${env.screen.width}×${env.screen.height} space and can be used directly. A red ring in images marks the mouse pointer. Prefer click_text for anything you can read; use coordinates for icons and unlabeled controls.${env.sandbox ? `
 - You are working on a PRIVATE VIRTUAL DESKTOP that the user watches live in the app — not on their real screen. It starts empty: a plain background, no taskbar, no launcher, no icons. Start applications with bash, detached, e.g. \`nohup firefox https://example.com >/dev/null 2>&1 &\`, then wait a moment and take the next screenshot. Applications installed here: ${env.sandbox.apps.length ? env.sandbox.apps.join(', ') : 'unknown — check with \`command -v\`'}. Windows opened here stay open between the user's tasks. (bash itself runs as the user on the real machine, so files you create are real.) The user can see your mouse pointer move, so act deliberately.` : ' The dark rounded bar at the bottom-centre of the screen is the app\'s own HUD — ignore it.'}
 - Work step by step: after any action that changes the screen (click, type, hotkey, launching an app) end the turn so you can see the result. Never assume a click worked.
 - Prefer the right tool: use bash for files, searching, launching apps (e.g. \`nohup firefox https://example.com >/dev/null 2>&1 &\`) and anything scriptable; use the GUI when a GUI is needed. Use atspi_* when a control is hard to hit by coordinates.
@@ -59,7 +63,8 @@ Environment: ${env.sandbox ? 'sandbox virtual desktop (plain X11)' : `${env.sess
 USER'S TASK:
 ${goal}
 
-The first screenshot is attached.`;
+CURRENT SCREEN:
+${screenText}`;
 }
 
 function clip(s: string, n: number): string {
@@ -89,6 +94,8 @@ export interface FollowUp {
   activeWindow?: string;
   interjection?: string;
   skippedBecauseInterrupted?: number;
+  screenText: string;
+  imageKind: ImageKind;
 }
 
 export function buildFollowUp(f: FollowUp): string {
@@ -107,12 +114,14 @@ export function buildFollowUp(f: FollowUp): string {
 
   const parts = ['Results of your last actions:', lines.join('\n') || '(none)'];
   if (f.skippedBecauseInterrupted) parts.push(`(${f.skippedBecauseInterrupted} remaining action(s) were cancelled because the user interrupted.)`);
-  if (f.activeWindow) parts.push(`Active window: ${f.activeWindow}`);
   if (f.changed === false) parts.push('Note: the screen looks identical to before — your last action may have had no effect.');
   if (f.interjection) {
     parts.push(`THE USER JUST INTERRUPTED with a new instruction (it overrides your previous plan if they conflict):\n“${f.interjection}”`);
   }
-  parts.push(`A fresh ${f.screen.width}×${f.screen.height} screenshot is attached. Reply with one \`\`\`json block only.`);
+  parts.push(`CURRENT SCREEN:\n${f.screenText}`);
+  if (f.imageKind === 'strip') parts.push('Attached: a motion strip (recent frames, oldest to newest, each stamped with its time) because the screen was moving.');
+  else if (f.imageKind === 'frame') parts.push(`Attached: one ${f.screen.width}×${f.screen.height} frame of the screen.`);
+  parts.push('Reply with one ```json block only.');
   return parts.join('\n\n');
 }
 

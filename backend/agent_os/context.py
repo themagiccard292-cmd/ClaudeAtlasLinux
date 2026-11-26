@@ -12,6 +12,7 @@ from .killswitch import InjectionGuard, KillSwitch
 from .runner import CommandRunner
 from .session import DisplayEnv, detect_session
 from .sandbox import Sandbox
+from .perception import Perceiver
 from .shell import ShellTool
 from .streamer import LiveStreamer
 from .targets import Target
@@ -43,6 +44,7 @@ class AppContext:
                            self.driver_error, self.atspi, self.executor)
         self.sandbox = Sandbox(self.ks, self.guard, self.env, self._fx)
         self.streamer = LiveStreamer(emit, self.get_target)
+        self._perceivers: dict[str, Perceiver] = {}
         self.voice = VoiceManager(emit)
         self.hotkeys = HotkeyService(self.ks, self.guard, on_ptt=self._on_ptt, env=self.env)
         self.hotkey_status: dict = {}
@@ -54,6 +56,18 @@ class AppContext:
         if name == "sandbox":
             return self.sandbox.target if self.sandbox.running else None
         return self.real
+
+    def perceiver(self, name: str) -> Perceiver | None:
+        tgt = self.get_target(name)
+        if tgt is None:
+            self._perceivers.pop(name, None)
+            return None
+        p = self._perceivers.get(name)
+        if p is None or p.target is not tgt:  # sandbox was restarted: new display, new watcher
+            if p:
+                p.stop()
+            p = self._perceivers[name] = Perceiver(tgt, name)
+        return p
 
     def _fx(self, fx: dict) -> None:
         self.emit("action.fx", fx)
@@ -72,6 +86,8 @@ class AppContext:
         self.hotkey_status = self.hotkeys.start()
 
     def stop(self) -> None:
+        for p in self._perceivers.values():
+            p.stop()
         self.streamer.stop()
         self.sandbox.stop()
         self.hotkeys.stop()

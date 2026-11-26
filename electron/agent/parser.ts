@@ -4,7 +4,7 @@ export class ParseError extends Error {}
 
 export const ACTION_TYPES: readonly ActionType[] = [
   'click', 'double_click', 'right_click', 'middle_click', 'move', 'drag', 'scroll', 'type', 'hotkey', 'bash',
-  'wait', 'screenshot', 'atspi_windows', 'atspi_tree', 'atspi_find', 'atspi_click',
+  'wait', 'screenshot', 'look', 'click_text', 'find_text', 'atspi_windows', 'atspi_tree', 'atspi_find', 'atspi_click',
 ];
 
 const ALIASES: Record<string, ActionType> = {
@@ -177,6 +177,20 @@ export function sanitizeAction(raw: unknown): AgentAction {
       if (t !== undefined) out.timeout = Math.max(1, Math.min(Math.round(t), 600));
       const cwd = str(raw.cwd, 500);
       if (cwd) out.cwd = cwd;
+      break;
+    }
+    case 'click_text':
+    case 'find_text': {
+      const t = str(raw.text ?? raw.name ?? raw.label, 120);
+      if (!t) throw new ParseError(`"${kind}" needs "text" (the words to find on screen)`);
+      out.text = t;
+      out.index = Math.max(0, Math.round(num(raw.index) ?? 0));
+      if (kind === 'click_text') {
+        const b = String(raw.button ?? 'left').toLowerCase();
+        if (b !== 'left' && b !== 'right' && b !== 'middle') throw new ParseError(`Invalid button "${b}"`);
+        out.button = b;
+        out.target = out.target ?? t;
+      }
       break;
     }
     case 'wait':

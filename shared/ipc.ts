@@ -1,6 +1,6 @@
 import type {
   AgentState, AppInfo, AudioDevices, AuthState, BackendState, BridgeDiagnosis, Chat, ChatMessage, ChatSummary,
-  ConfirmRequest, LiveFx, SandboxState, Settings, UpdateState, VoiceUiState, Workflow,
+  ConfirmRequest, ImageKind, LiveFx, PerceptionMeta, SandboxState, Settings, UpdateState, VoiceUiState, Workflow,
 } from './types';
 
 /** Request/response channels (renderer → main). */
@@ -71,6 +71,7 @@ export type AtlasEvent =
   | { type: 'live:frame'; target: 'real' | 'sandbox'; seq: number; w: number; h: number; pointer: [number, number] | null; jpeg: string | null; ended?: boolean }
   | { type: 'live:fx'; fx: LiveFx }
   | { type: 'sandbox'; state: SandboxState }
+  | { type: 'perception'; text: string; imageKind: ImageKind; meta: PerceptionMeta; ts: number }
   | { type: 'update'; state: UpdateState }
   | { type: 'settings'; settings: Settings }
   | { type: 'toast'; level: 'info' | 'warn' | 'error'; message: string };

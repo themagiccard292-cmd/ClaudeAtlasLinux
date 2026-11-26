@@ -49,9 +49,12 @@ def build_target(
     on_fx: Callable[[dict], None] | None,
     env_extra: dict[str, str | None] | None = None,
     force_driver: str | None = None,
+    atspi_factory: Callable[[CommandRunner], AtspiService | NoAtspi] | None = None,
 ) -> Target:
     runner = CommandRunner(ks, env_extra)
     capturer = ScreenCapturer(env, runner)
+    if atspi_factory is not None:
+        atspi = atspi_factory(runner)
     shell = ShellTool(ks, env_extra)
     driver: InputDriver | None = None
     driver_error: str | None = None

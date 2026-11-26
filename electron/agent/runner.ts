@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AtlasEvent } from '../../shared/ipc';
 import type {
-  ActionRecord, AgentAction, AgentReply, AgentState, BackendInfo, Chat, ChatMessage, SandboxState, Settings, StepRecord,
+  ActionRecord, AgentAction, AgentReply, AgentState, BackendInfo, Chat, ChatMessage, ImageKind, PerceptionMeta, SandboxState, Settings, StepRecord,
 } from '../../shared/types';
 import type { BackendClient } from '../backend/client';
 import { thumbnailDataUrl } from '../bridge/imageUtil';
@@ -12,11 +12,18 @@ import { ParseError, parseAgentReply } from './parser';
 import { buildFollowUp, buildFormatReminder, buildInitialPrompt, type PromptEnv } from './prompt';
 import { parseVoiceConfirmation } from './voiceConfirm';
 
-interface Shot {
-  jpeg: Buffer;
+/** What the perception engine handed us for one turn: text first, an image only when it earned its place. */
+interface Observation {
+  text: string;
+  /** Sent to Claude only when present (motion strip, or a frame for content text cannot describe). */
+  image?: Buffer;
+  imageKind: ImageKind;
+  /** Small preview for the chat UI (never sent to Claude). */
+  thumb: Buffer;
   width: number;
   height: number;
   changed: boolean | null;
+  meta: PerceptionMeta;
 }
 
 interface ExecResult {
@@ -68,7 +75,8 @@ export class AgentRunner {
   /** Which desktop the current task drives. */
   private target: 'real' | 'sandbox' = 'real';
   private streamStopTimer: NodeJS.Timeout | null = null;
-  private atspiHints = true;
+  /** Claude asked to `look`: attach a full frame to the next observation. */
+  private wantLook = false;
 
   constructor(private readonly d: RunnerDeps) {}
 
@@ -325,26 +333,25 @@ export class AgentRunner {
   }
 
   // --------------------------------------------------------------- agent mode
-  private async capture(backend: BackendClient): Promise<Shot> {
-    const mask = this.target === 'real' ? this.d.hudMask() : null; // the sandbox has no HUD on it
-    const r = await backend.call<{ image_b64: string; width: number; height: number; changed: boolean | null }>(
-      'screen.capture', { target: this.target, mask: mask ?? undefined, cursor: true }, 40_000);
-    return { jpeg: Buffer.from(r.image_b64, 'base64'), width: r.width, height: r.height, changed: r.changed };
+  /** Watch the screen (it settles first), read it as text, and decide whether an image is needed. */
+  private async observe(backend: BackendClient): Promise<Observation> {
+    const mask = this.target === 'real' ? this.d.hudMask() : null; // keep the agent's own HUD out of the picture
+    const wantLook = this.wantLook;
+    this.wantLook = false;
+    const r = await backend.call<{
+      text: string; image_b64: string | null; image_kind: ImageKind; thumb_b64: string; width: number; height: number;
+      changed: boolean | null; meta: PerceptionMeta;
+    }>('perception.observe', {
+      target: this.target, vision: this.d.settings().visionMode, force_image: wantLook, settle: true, settle_timeout: 4, mask: mask ?? undefined,
+    }, 90_000);
+    this.d.emit({ type: 'perception', text: r.text, imageKind: r.image_kind, meta: r.meta, ts: Date.now() });
+    return {
+      text: r.text, image: r.image_b64 ? Buffer.from(r.image_b64, 'base64') : undefined, imageKind: r.image_kind,
+      thumb: Buffer.from(r.thumb_b64, 'base64'), width: r.width, height: r.height, changed: r.changed, meta: r.meta,
+    };
   }
 
-  private async activeWindow(backend: BackendClient): Promise<string | undefined> {
-    if (!this.atspiHints || this.target === 'sandbox') return undefined;
-    try {
-      const r = await backend.call<{ windows: { app: string; title: string; active: boolean }[] }>('atspi.windows', {}, 6_000);
-      const w = r.windows.find((x) => x.active);
-      return w ? `${w.app} — ${w.title}` : undefined;
-    } catch {
-      this.atspiHints = false; // not available / too slow: stop paying for it every turn
-      return undefined;
-    }
-  }
-
-  private async askClaude(bridge: ClaudeBridge, chat: Chat, prompt: string, image: Buffer): Promise<AgentReply> {
+  private async askClaude(bridge: ClaudeBridge, chat: Chat, prompt: string, image: Buffer | undefined): Promise<AgentReply> {
     let text = prompt;
     let img: Buffer | undefined = image;
     for (let attempt = 0; ; attempt++) {
@@ -366,30 +373,33 @@ export class AgentRunner {
 
   private async agentLoop(chat: Chat, goal: string, bridge: ClaudeBridge, backend: BackendClient, info?: BackendInfo, sandboxApps?: string[]): Promise<void> {
     const settings = this.d.settings();
-    let shot = await this.capture(backend);
+    this.setState({ label: 'Reading the screen…' });
+    let obs = await this.observe(backend);
     const env: PromptEnv = {
       session: info?.session.kind ?? 'unknown',
       desktop: info?.session.desktop ?? '',
-      screen: { width: shot.width, height: shot.height },
-      hasAtspi: !!info?.atspi.available && this.target === 'real',
+      screen: { width: obs.width, height: obs.height },
+      vision: settings.visionMode,
+      hasAtspi: this.target === 'real' ? !!info?.atspi.available : !!obs.meta.atspi,
       sandbox: this.target === 'sandbox' ? { apps: sandboxApps ?? [] } : undefined,
       tools: Object.entries(info?.session.tools ?? {}).filter(([, v]) => v).map(([k]) => k),
     };
-    let prompt = buildInitialPrompt(goal, env);
+    let prompt = buildInitialPrompt(goal, env, obs.text);
 
     for (let step = 1; step <= settings.maxSteps; step++) {
       this.setState({ step, label: 'Claude is thinking…' });
       await this.checkpoint();
-      const reply = await this.askClaude(bridge, chat, prompt, shot.jpeg);
+      const reply = await this.askClaude(bridge, chat, prompt, obs.image);
       await this.checkpoint();
 
       const rec: StepRecord = {
         step,
         thought: reply.thought,
-        screenshot: thumbnailDataUrl(shot.jpeg),
-        shotWidth: shot.width,
-        shotHeight: shot.height,
-        changed: shot.changed,
+        screenshot: thumbnailDataUrl(obs.thumb),
+        shotWidth: obs.width,
+        shotHeight: obs.height,
+        changed: obs.changed,
+        vision: { kind: obs.imageKind, text: true, meta: obs.meta },
         actions: reply.actions.map((a) => ({ id: randomUUID(), action: a, status: 'pending' as const })),
       };
       const msg = this.addMessage(chat, { role: 'assistant', kind: 'step', content: reply.message, step: rec });
@@ -429,14 +439,17 @@ export class AgentRunner {
         return;
       }
 
-      // Verify: settle, then look again.
-      this.setState({ label: 'Checking the result…' });
-      await sleep(Math.max(300, settings.stepDelayMs));
+      // Verify: give the effect a moment to start, then let the perception engine wait for the screen to settle.
+      if (results.some((r) => r.action.action === 'look' || r.action.action === 'screenshot')) this.wantLook = true;
+      this.setState({ label: 'Watching the result…' });
+      await sleep(Math.max(350, settings.stepDelayMs));
       await this.checkpoint();
-      shot = await this.capture(backend);
-      const activeWindow = await this.activeWindow(backend);
+      obs = await this.observe(backend);
       const interjection = this.interjections.splice(0).join('\n') || undefined;
-      prompt = buildFollowUp({ results, changed: shot.changed, screen: { width: shot.width, height: shot.height }, activeWindow, interjection, skippedBecauseInterrupted: skipped });
+      prompt = buildFollowUp({
+        results, changed: obs.changed, screen: { width: obs.width, height: obs.height }, interjection,
+        skippedBecauseInterrupted: skipped, screenText: obs.text, imageKind: obs.imageKind,
+      });
     }
   }
 

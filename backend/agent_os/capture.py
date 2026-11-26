@@ -159,6 +159,7 @@ class ScreenCapturer:
         self._prev_thumb: np.ndarray | None = None
         self._mon_cache: tuple[float, Monitor | None] = (0.0, None)
         self._monitors: list[Monitor] = []
+        self.last_raw: Image.Image | None = None
         self._stream_prev: np.ndarray | None = None
         self._stream_sent = 0.0
 
@@ -331,6 +332,12 @@ class ScreenCapturer:
             origin_x = origin_y = 0
             logical_w, logical_h = real_w, real_h
 
+        self.last_raw = img.copy()
+        if mask:  # keep the agent's own HUD out of OCR as well
+            rw, rh = self.last_raw.size
+            ImageDraw.Draw(self.last_raw).rectangle(
+                [round(mask["x"] * rw), round(mask["y"] * rh), round((mask["x"] + mask["w"]) * rw), round((mask["y"] + mask["h"]) * rh)],
+                fill=(38, 38, 36))
         cursor = self._cursor() if draw_cursor else None
         draw = ImageDraw.Draw(img)
         if cursor:

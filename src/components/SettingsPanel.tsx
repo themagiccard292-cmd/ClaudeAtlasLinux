@@ -99,6 +99,11 @@ export function SettingsPanel() {
               <option value="sandbox">Sandbox desktop (live view)</option><option value="real">My desktop</option>
             </select>
           </Row>
+          <Row label="How Claude sees the screen" hint="Claude can't take video. It reads the screen as text and gets an image only when needed.">
+            <select value={settings.visionMode} onChange={(e) => void patchSettings({ visionMode: e.target.value as 'auto' | 'text' | 'frames' })} className={input}>
+              <option value="auto">Auto: text first, motion strip when things move</option><option value="text">Text only: never send images</option><option value="frames">Always send a frame</option>
+            </select>
+          </Row>
           <Row label="Sandbox screen size" hint="Applies the next time the sandbox starts.">
             <select value={`${settings.sandboxWidth}x${settings.sandboxHeight}`} onChange={(e) => { const [w, h] = e.target.value.split('x').map(Number); void patchSettings({ sandboxWidth: w, sandboxHeight: h }); }} className={input}>
               <option value="1280x720">1280 × 720</option><option value="1600x900">1600 × 900</option><option value="1920x1080">1920 × 1080</option>

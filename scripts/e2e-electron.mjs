@@ -64,8 +64,10 @@ let input = ''; process.stdin.on('data', d => input += d); process.stdin.on('end
   } else if (scenario === 'sandbox') {
     reply = st.n === 1
       ? fence({ thought: 'Open a terminal on the sandbox', actions: [
-          { action: 'bash', command: "nohup xterm -bg '#00aa00' -fg white -geometry 70x22+60+60 >/dev/null 2>&1 & echo $DISPLAY > " + process.env.DISPFILE + "; sleep 1.5" },
+          { action: 'bash', command: "nohup xterm -T AtlasTerm -fa 'DejaVu Sans Mono' -fs 13 -bg '#101820' -fg white -geometry 70x22+60+60 -e bash -c 'echo SANDBOX-OK-4242; sleep 120' >/dev/null 2>&1 & echo $DISPLAY > " + process.env.DISPFILE + "; sleep 1.5" },
           { action: 'click', x: 1100, y: 600, target: 'far corner' }], done: false, message: 'Launching a terminal' })
+      : st.n === 2
+      ? fence({ thought: 'I can READ the word in the text view; click it by its words', actions: [{ action: 'click_text', text: 'SANDBOX-OK-4242' }], done: false, message: 'Clicking the text I read' })
       : fence({ thought: 'Looks right', actions: [], done: true, message: 'Terminal is open on the sandbox.' });
   } else if (scenario === 'badjson') {
     reply = st.n <= 2 ? 'I will just describe it in prose.' : fence({ actions: [], done: true, message: 'recovered after reminders' });
@@ -125,9 +127,10 @@ try {
   setScenario('marker');
   const chat = await inv('chat:create');
   await inv('agent:start', { chatId: chat.id, text: 'create the marker file', mode: 'agent' });
-  let sawHud = false, sawRunning = false, last;
+  let sawHud = false, sawRunning = false, last, mainVisibleDuringRealTask = false;
   for (let i = 0; i < 120; i++) {
     sawHud ||= app.windows().some((w) => w.url().includes('#/hud'));
+    if (sawHud && (await inv('agent:state')).status === 'running') mainVisibleDuringRealTask ||= await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.isVisible() && /index\.html/.test(w.webContents.getURL()) && !/hud/.test(w.webContents.getURL())));
     const st = await inv('agent:state');
     sawRunning ||= st.status === 'running';
     last = await inv('chat:get', chat.id);
@@ -136,6 +139,7 @@ try {
   }
   check('agent entered running state', sawRunning);
   check('Mini-HUD window was created while working', sawHud);
+  check('main window stayed HIDDEN during the real-desktop task (it must not cover the screen or leak into Claude\'s view)', !mainVisibleDuringRealTask);
   check('bash action executed on the real system', existsSync(marker) && readFileSync(marker, 'utf8').trim() === 'atlas-was-here');
   const steps = last.messages.filter((m) => m.kind === 'step');
   check('step recorded with screenshot thumbnail + both actions OK', steps.length >= 1 && !!steps[0].step.screenshot?.startsWith('data:image/jpeg') && steps[0].step.actions.every((a) => a.status === 'ok'), JSON.stringify(steps[0]?.step.actions.map((a) => [a.action.action, a.status, a.message])));
@@ -143,7 +147,9 @@ try {
   check('click mapped 640,360 (model) → 800,450 (1600x900 screen)', click?.screen?.x === 800 && click?.screen?.y === 450, JSON.stringify(click?.screen));
   check('final assistant answer shown', last.messages.some((m) => m.kind === 'text' && /marker file exists/.test(m.content)));
   const prompts = readFileSync(join(tmp, 'prompts.log'), 'utf8');
-  check('first prompt carries the JSON protocol + task + screenshot path', /OUTPUT FORMAT/.test(prompts) && /create the marker file/.test(prompts) && /screen-\d+\.jpg/.test(prompts));
+  check('first prompt carries the JSON protocol + task + a TEXT view of the screen', /OUTPUT FORMAT/.test(prompts) && /create the marker file/.test(prompts) && /CURRENT SCREEN:\n\[screen\] \d+x\d+/.test(prompts));
+  check('prompt is honest: no video, text description, image only when needed', /do NOT receive a video stream/.test(prompts) && /\[text on screen\]/.test(prompts));
+  check('empty desktop => NO screenshot was attached at all', execSync(`ls ${join(tmp, 'profile', 'cli-work')}/screen-*.jpg 2>/dev/null | wc -l`).toString().trim() === '0');
   check('follow-up prompt reports action results', /Results of your last actions/.test(prompts) && /bash `echo atlas-was-here/.test(prompts));
   const envLog = readFileSync(join(tmp, 'env.log'), 'utf8');
   check('API-key env vars are scrubbed before the CLI runs (subscription auth only)', envLog.includes('clean:ANTHROPIC_API_KEY') && !envLog.includes('LEAK'), envLog);
@@ -253,16 +259,26 @@ try {
   check(`agent's shell ran on the sandbox display (${sbDisplay}), not the real one (${DISPLAY})`, /^:\d+$/.test(sbDisplay) && sbDisplay !== DISPLAY);
   const prompts2 = readFileSync(join(tmp, 'prompts.log'), 'utf8');
   check('prompt tells Claude it is on a private virtual desktop and which apps exist', /PRIVATE VIRTUAL DESKTOP/.test(prompts2) && /Applications installed here:/.test(prompts2));
-  // What CLAUDE saw on its 2nd turn: a screenshot of the sandbox with the green xterm on it
-  const shotFiles = execSync(`ls -t ${join(tmp, 'profile', 'cli-work')}/screen-*.jpg`).toString().trim().split('\n');
-  const green = execSync(`python3 -c "from PIL import Image; im=Image.open('${shotFiles[0]}').convert('RGB'); w,h=im.size; r,g,b=im.getpixel((int(w*0.25),int(h*0.30))); print(int(g>120 and r<70 and b<70))"`).toString().trim();
-  check('Claude\'s screenshot is of the SANDBOX (green terminal visible there)', green === '1', shotFiles[0]);
-  check('real desktop untouched: no green terminal on the real display', execSync(`DISPLAY=${DISPLAY} xwininfo -root -tree 2>/dev/null | grep -ci xterm || true`).toString().trim() === '0');
+  // What CLAUDE received: a TEXT view of the sandbox, containing the word printed in the sandbox terminal
+  const lastRun = prompts2.slice(prompts2.lastIndexOf('--- call 1 ---'));
+  const OCR_WORD = /SANDBOX\s*-?\s*OK\s*-?\s*4242/;
+  const turn2 = lastRun.split('--- call 2 ---')[1] ?? '';
+  check('Claude read the sandbox terminal as TEXT (windows + OCR), no screenshot needed', /AtlasTerm/.test(turn2) && OCR_WORD.test(turn2) && /\[text on screen\]/.test(turn2), turn2.slice(0, 600));
+  check('timeline told Claude what changed (window opened)', /\[what changed since your last step\]/.test(turn2) && /window opened: “AtlasTerm”/.test(turn2), turn2.slice(0, 900));
+  const turn3 = lastRun.split('--- call 3 ---')[1] ?? '';
+  check('Claude clicked by READING: click_text found the words and clicked them', /clicked the text “SANDBOX\s*-?\s*OK\s*-?\s*4242”/.test(turn3), turn3.slice(0, 500));
+  const clicks = ev6.filter((e) => e.type === 'live:fx' && e.fx.kind === 'click');
+  check('a second click effect landed on the terminal text (left/top of the screen)', clicks.length >= 2 && clicks[clicks.length - 1].fx.x < 0.5 && clicks[clicks.length - 1].fx.y < 0.5, JSON.stringify(clicks.map((c) => [c.fx.x, c.fx.y])));
+  check('real desktop untouched: no terminal on the real display', execSync(`DISPLAY=${DISPLAY} xwininfo -root -tree 2>/dev/null | grep -ci xterm || true`).toString().trim() === '0');
+  const perceptionEv = ev6.filter((e) => e.type === 'perception');
+  check(`UI received Claude's view each turn (${perceptionEv.length} perception events)`, perceptionEv.length >= 2 && OCR_WORD.test(perceptionEv[perceptionEv.length - 1].text));
+  await win.getByText('What Claude sees').first().waitFor({ timeout: 8000 }).then(() => check('“What Claude sees” panel is shown in the app', true)).catch(() => check('“What Claude sees” panel is shown in the app', false));
   // the renderer shows the live panel with a painted canvas
   const panel = win.locator('aside[aria-label="Live view"]');
   await panel.waitFor({ timeout: 8000 }).then(() => check('Live view panel is visible in the app', true)).catch(() => check('Live view panel is visible in the app', false));
   const painted = await win.evaluate(() => { const c = document.querySelector('aside[aria-label="Live view"] canvas'); if (!c) return false; const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4000) n += d[i] + d[i + 1] + d[i + 2]; return n > 0; });
   check('canvas contains the streamed desktop image (CSP-safe decode)', painted);
+  await win.screenshot({ path: join(tmp, 'live.png') });
   if (shotsDir) await win.screenshot({ path: join(shotsDir, 'electron-live-view.png') });
 
   // ---- 7. chats persisted to disk ---------------------------------------------------------------------

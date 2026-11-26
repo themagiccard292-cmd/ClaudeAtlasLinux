@@ -20,6 +20,7 @@ from .errors import ActionError, UnsupportedError
 from .killswitch import InjectionGuard, KillSwitch
 from .runner import clean_env
 from .session import DisplayEnv
+from .atspi import AtspiService
 from .targets import NoAtspi, Target, build_target
 
 WM_CANDIDATES = ("openbox", "fluxbox", "icewm", "xfwm4", "metacity")
@@ -46,6 +47,8 @@ class Sandbox:
         self._lock = threading.Lock()
         self._xvfb: subprocess.Popen | None = None
         self._wm: subprocess.Popen | None = None
+        self._a11y_procs: list[subprocess.Popen] = []
+        self.a11y = False
         self.target: Target | None = None
         self.display: str | None = None
         self.size: tuple[int, int] = (1280, 720)
@@ -65,6 +68,7 @@ class Sandbox:
             "width": self.size[0], "height": self.size[1],
             "available": shutil.which("Xvfb") is not None and shutil.which("xdotool") is not None,
             "window_manager": self._wm.args[0] if self._wm and self._wm.poll() is None else None,
+            "accessibility": self.a11y,
             "reason": None if shutil.which("Xvfb") and shutil.which("xdotool")
             else "Install `xvfb` and `xdotool` (sudo apt install xvfb xdotool) to use the sandbox desktop.",
         }
@@ -89,10 +93,12 @@ class Sandbox:
             self._pidfile.write_text(f"{self._xvfb.pid} {os.getpid()}")  # xvfb pid + owning backend pid
 
             env_extra = {**SANDBOX_ENV_BASE, "DISPLAY": self.display}
+            env_extra.update(self._start_a11y(env_extra))
             env = DisplayEnv(kind="x11", desktop="sandbox", display=self.display, wayland_display=None,
                              xwayland=False, detected_from="sandbox", tools=self.real_env.tools)
             self.target = build_target("sandbox", env, self.ks, self.guard, NoAtspi(), self.on_fx,
-                                       env_extra=env_extra, force_driver="xdotool")
+                                       env_extra=env_extra, force_driver="xdotool",
+                                       atspi_factory=(AtspiService if self.a11y else None))
             if self.target.driver is None:
                 self._kill_procs()
                 self.target = None
@@ -150,18 +156,65 @@ class Sandbox:
             pass
         raise ActionError(f"Xvfb could not start the sandbox display after {attempts} attempts. {tail}")
 
+    def _start_a11y(self, env_extra: dict) -> dict[str, str | None]:
+        """Private D-Bus session + AT-SPI bus for the sandbox, so Claude can read its UI elements.
+        Best-effort: without these tools the sandbox simply has no accessibility tree."""
+        import shutil
+
+        launcher = next((p for p in ("/usr/libexec/at-spi-bus-launcher", "/usr/lib/at-spi2-core/at-spi-bus-launcher",
+                                     shutil.which("at-spi-bus-launcher") or "") if p and os.path.exists(p)), None)
+        if not (shutil.which("dbus-daemon") and launcher):
+            self.a11y = False
+            return {}
+        r, w = os.pipe()
+        try:
+            bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", f"--print-address={w}"], pass_fds=(w,),
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=clean_env(env_extra),
+                                   start_new_session=True)
+        finally:
+            os.close(w)
+        try:
+            ready, _, _ = select.select([r], [], [], 5)
+            addr = os.read(r, 512).decode().strip() if ready else ""
+        finally:
+            os.close(r)
+        if not addr or bus.poll() is not None:
+            if bus.poll() is None:
+                bus.terminate()
+            self.a11y = False
+            return {}
+        a11y_env = {
+            "DBUS_SESSION_BUS_ADDRESS": addr, "GTK_A11Y": "atspi", "NO_AT_BRIDGE": "0", "GNOME_ACCESSIBILITY": "1",
+            "ACCESSIBILITY_ENABLED": "1", "QT_ACCESSIBILITY": "1", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON": "1",
+        }
+        env = clean_env({**env_extra, **a11y_env})
+        self._a11y_procs = [bus]
+        try:
+            self._a11y_procs.append(subprocess.Popen([launcher, "--launch-immediately"], env=env,
+                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                     start_new_session=True))
+            time.sleep(0.6)
+            if shutil.which("dbus-send"):  # tell toolkits (Chromium, Firefox, Qt) that an assistive tech is present
+                subprocess.run(["dbus-send", "--session", "--dest=org.a11y.Bus", "--print-reply", "/org/a11y/bus",
+                                "org.freedesktop.DBus.Properties.Set", "string:org.a11y.Status", "string:IsEnabled",
+                                "variant:boolean:true"], env=env, capture_output=True, timeout=5)
+        except Exception:
+            pass
+        self.a11y = True
+        return a11y_env
+
     def target_error(self) -> str:
         return (self.target.driver_error if self.target else None) or "no input driver for the sandbox"
 
     # ----------------------------------------------------------------- stop
     def _kill_procs(self) -> None:
-        for proc in (self._wm, self._xvfb):
+        for proc in (self._wm, *self._a11y_procs, self._xvfb):
             if proc and proc.poll() is None:
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                 except (ProcessLookupError, PermissionError):
                     pass
-        for proc in (self._wm, self._xvfb):
+        for proc in (self._wm, *self._a11y_procs, self._xvfb):
             if proc:
                 try:
                     proc.wait(timeout=3)
@@ -171,6 +224,8 @@ class Sandbox:
                     except (ProcessLookupError, PermissionError):
                         pass
         self._wm = self._xvfb = None
+        self._a11y_procs = []
+        self.a11y = False
 
     def stop(self) -> dict:
         with self._lock:

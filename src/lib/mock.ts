@@ -122,6 +122,8 @@ export function installMock(): void {
     setTimeout(() => emit({ type: 'voice:state', state: 'listening' }), 100);
   }
   if (view === 'live') {
+    setTimeout(() => emit({ type: 'perception', ts: Date.now(), imageKind: 'none', meta: { ocr_lines: 14, elements: 6, windows: 2, motion: false },
+      text: '[screen] 1280x720 (all coordinates below are in this space; click them directly) · pointer at (640,360)\n[windows]\n  * “Example Domain — Firefox” 1280x680 at (0,24)\n    “Terminal” 560x340 at (60,60)\n[ui elements] (accessibility tree; @(x,y) = click point)\n  12: push button "Search" @(940,118) [focused] actions=click\n  13: entry "Search or enter address" @(520,118) [editable]\n[text on screen] (OCR; @(x,y) = centre of the text, WxH size)\n  “Example Domain” @(645,211) 259x27\n  “This domain is for use in illustrative examples” @(632,302) 394x14\n[what changed since your last step]\n  +0.3s window opened: “Example Domain — Firefox”\n  +1.4s screen was changing for 1.1s (centre) and then settled\n  +1.5s text appeared: “Example Domain”' }), 700);
     // simulated sandbox stream: a browser-ish window, a pointer gliding between targets, periodic click ripples
     const frame = () => {
       const c = document.createElement('canvas'); c.width = 960; c.height = 540; const g = c.getContext('2d')!;
